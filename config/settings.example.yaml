@@ -1,0 +1,44 @@
+# Application settings – copy to config/settings.yaml and adjust to your needs
+
+# Target role (used for scoring)
+role: "Frontend Developer"
+
+# Technologies you work with (used for scoring)
+technologies:
+  - React
+  - TypeScript
+  - Next.js
+  - JavaScript
+  - CSS
+  - HTML
+
+# Minimum expected salary (PLN/month, used for scoring)
+min_salary_b2b: 18000
+min_salary_uop: 12000
+
+# Preferred locations (used for scoring)
+locations:
+  - Warszawa
+  - Kraków
+  - remote
+
+# Contract types to consider
+contract_types:
+  - B2B
+  - UoP
+
+# Minimum score to consider an offer "good enough" for applying
+auto_apply_min_score: 70
+
+# Safety: always require manual confirmation before submitting
+require_manual_confirm: true
+
+# Skip offers without salary information
+skip_without_salary: false
+
+# LM Studio local LLM settings
+lm_studio:
+  enabled: true
+  base_url: "http://localhost:1234/v1"
+  api_key: "lm-studio"
+  model: "local-model"

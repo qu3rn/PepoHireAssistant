@@ -1,0 +1,31 @@
+# Profile configuration – copy to config/profile.yaml and fill in your data
+
+first_name: "Jan"
+last_name: "Kowalski"
+email: "jan.kowalski@example.com"
+phone: "+48 123 456 789"
+city: "Warszawa"
+linkedin: "https://linkedin.com/in/jankowalski"
+github: "https://github.com/jankowalski"
+portfolio: "https://jankowalski.dev"
+cv_path: "data/cv.pdf"
+
+# Salary expectations (PLN/month)
+expected_salary_b2b: 20000
+expected_salary_uop: 14000
+
+# Availability / notice period
+availability: "immediately"
+notice_period: "2 weeks"
+
+# English level: A1, A2, B1, B2, C1, C2, native
+english_level: "C1"
+
+# Work mode: remote, hybrid, on-site
+preferred_work_mode: "remote"
+
+# GDPR consents
+consents:
+  data_processing: true      # Required for job applications
+  future_recruitment: true   # Allow contact for future roles
+  marketing: false           # Do not send marketing emails
