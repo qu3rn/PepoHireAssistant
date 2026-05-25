@@ -1,0 +1,21 @@
+[
+  {
+    "id": "example-offer-001",
+    "source": "rocketjobs",
+    "url": "https://rocketjobs.pl/oferty/example-frontend-developer",
+    "title": "Senior Frontend Developer",
+    "company": "Example Corp",
+    "salary_min": 18000,
+    "salary_max": 25000,
+    "currency": "PLN",
+    "contract": "B2B",
+    "location": "Warszawa / Remote",
+    "description": "We are looking for a Senior Frontend Developer with React and TypeScript experience.",
+    "technologies": ["React", "TypeScript", "Next.js", "GraphQL"],
+    "created_at": "2024-01-15T10:00:00",
+    "score": 85,
+    "decision": "apply",
+    "decision_reasons": ["Role matches", "React present", "TypeScript present", "Salary meets minimum"],
+    "risks": ["Senior role may require more experience"]
+  }
+]

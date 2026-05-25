@@ -1,0 +1,29 @@
+[
+  {
+    "id": "example-app-001",
+    "offer_id": "example-offer-001",
+    "source": "rocketjobs",
+    "url": "https://rocketjobs.pl/oferty/example-frontend-developer",
+    "company": "Example Corp",
+    "title": "Senior Frontend Developer",
+    "salary_min": 18000,
+    "salary_max": 25000,
+    "currency": "PLN",
+    "contract": "B2B",
+    "location": "Warszawa / Remote",
+    "status": "ready_to_send",
+    "score": 85,
+    "cv_file": "data/cv.pdf",
+    "cover_letter_file": "",
+    "notes": "Great company, good tech stack",
+    "created_at": "2024-01-15T10:05:00",
+    "updated_at": "2024-01-15T10:05:00",
+    "events": [
+      {
+        "timestamp": "2024-01-15T10:05:00",
+        "event": "created",
+        "details": "Application created from offer example-offer-001"
+      }
+    ]
+  }
+]
