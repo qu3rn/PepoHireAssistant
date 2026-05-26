@@ -144,3 +144,60 @@ def test_application_status_default(tmp_apps_path: Path) -> None:
 
     loaded = load_applications(path=tmp_apps_path)
     assert loaded[0].status == ApplicationStatus.NEW
+
+
+# ---------------------------------------------------------------------------
+# Application status & notes update
+# ---------------------------------------------------------------------------
+
+
+def test_update_application_status(tmp_apps_path: Path) -> None:
+    from cv_sender.storage import update_application
+
+    app = _make_application()
+    save_applications([app], path=tmp_apps_path)
+
+    updated = app.model_copy(update={"status": ApplicationStatus.SENT})
+    update_application(updated, path=tmp_apps_path)
+
+    loaded = load_applications(path=tmp_apps_path)
+    assert loaded[0].status == ApplicationStatus.SENT
+
+
+def test_update_application_notes(tmp_apps_path: Path) -> None:
+    from cv_sender.storage import update_application
+
+    app = _make_application()
+    save_applications([app], path=tmp_apps_path)
+
+    updated = app.model_copy(update={"notes": "Sent follow-up email"})
+    update_application(updated, path=tmp_apps_path)
+
+    loaded = load_applications(path=tmp_apps_path)
+    assert loaded[0].notes == "Sent follow-up email"
+
+
+def test_update_application_preserves_other_fields(tmp_apps_path: Path) -> None:
+    from cv_sender.storage import update_application
+
+    app = _make_application(score=85)
+    save_applications([app], path=tmp_apps_path)
+
+    updated = app.model_copy(update={"status": ApplicationStatus.INTERVIEW})
+    update_application(updated, path=tmp_apps_path)
+
+    loaded = load_applications(path=tmp_apps_path)
+    assert loaded[0].score == 85
+    assert loaded[0].status == ApplicationStatus.INTERVIEW
+
+
+def test_load_applications_does_not_crash_on_missing_file(tmp_path: Path) -> None:
+    missing = tmp_path / "completely_missing.json"
+    result = load_applications(path=missing)
+    assert result == []
+
+
+def test_load_offers_does_not_crash_on_missing_file(tmp_path: Path) -> None:
+    missing = tmp_path / "completely_missing_offers.json"
+    result = load_offers(path=missing)
+    assert result == []
