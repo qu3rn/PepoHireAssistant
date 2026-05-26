@@ -104,3 +104,24 @@ def load_settings(path: str | None = None) -> Settings:
     if "lm_studio" in data and isinstance(data["lm_studio"], dict):
         data["lm_studio"] = LMStudioConfig.model_validate(data["lm_studio"])
     return Settings.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# Savers
+# ---------------------------------------------------------------------------
+
+
+def save_profile(profile: Profile, path: str | None = None) -> None:
+    """Persist *profile* to a YAML file."""
+    file_path = Path(path or os.getenv("PROFILE_PATH", str(_DEFAULT_PROFILE)))
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_path.open("w", encoding="utf-8") as fh:
+        yaml.dump(profile.model_dump(), fh, allow_unicode=True, sort_keys=False)
+
+
+def save_settings(settings: Settings, path: str | None = None) -> None:
+    """Persist *settings* to a YAML file."""
+    file_path = Path(path or os.getenv("SETTINGS_PATH", str(_DEFAULT_SETTINGS)))
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_path.open("w", encoding="utf-8") as fh:
+        yaml.dump(settings.model_dump(), fh, allow_unicode=True, sort_keys=False)

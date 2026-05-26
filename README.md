@@ -18,6 +18,7 @@ It evaluates offers, stores your application history, opens job pages in a real 
 - Portal-specific fillers for RocketJobs, Pracuj.pl, LinkedIn (+ generic fallback)
 - JSON-file storage for offers and application history
 - Rich CLI with `typer`
+- **Local Streamlit UI** – dashboard, offer management, application history, profile and settings editor
 
 ---
 
@@ -82,7 +83,18 @@ cv-sender list --show offers --decision apply
 
 # Open an offer in the browser, fill the form, and wait for your review
 cv-sender apply --offer-id <id>
+
+# Launch the Streamlit web UI (default: http://localhost:8501)
+cv-sender ui
+
+# Launch on a custom host/port
+cv-sender ui --host 0.0.0.0 --port 8080
 ```
+
+> ⚠️ **Form filling safety**  
+> The "Fill application form" button in the UI calls the same Playwright automation as the CLI.  
+> It fills the form and uploads your CV, then **stops and waits** – it never clicks the final Submit button.  
+> You must review and submit the form yourself in the browser window that opens.
 
 ---
 
@@ -91,14 +103,15 @@ cv-sender apply --offer-id <id>
 ```
 cv-sender/
 ├── src/cv_sender/
-│   ├── cli.py          # CLI commands
-│   ├── config.py       # YAML config loading
+│   ├── cli.py          # CLI commands (including `cv-sender ui`)
+│   ├── config.py       # YAML config loading/saving
 │   ├── models.py       # Pydantic models
 │   ├── storage.py      # JSON file storage
 │   ├── scorer.py       # Deterministic + LLM scoring
 │   ├── llm.py          # LM Studio integration
 │   ├── browser.py      # Playwright session management
 │   ├── form_filler.py  # Orchestrates form filling
+│   ├── ui.py           # Streamlit web UI
 │   └── portals/        # Portal-specific fillers
 │       ├── base.py
 │       ├── generic.py
@@ -112,6 +125,7 @@ cv-sender/
 │   ├── offers.json          (created by the app)
 │   └── applications.json    (created by the app)
 └── tests/
+    ├── test_config.py
     ├── test_models.py
     ├── test_scorer.py
     └── test_storage.py
@@ -125,4 +139,4 @@ cv-sender/
 - [ ] Cover-letter generation via LLM
 - [ ] Multi-step form navigation (LinkedIn Easy Apply wizard)
 - [ ] Email notification on application status changes
-- [ ] Web UI dashboard
+- [x] Web UI dashboard

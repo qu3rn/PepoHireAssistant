@@ -284,6 +284,43 @@ def add_offer_cmd() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ui
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def ui(
+    host: str = typer.Option("localhost", "--host", help="Hostname for the Streamlit server"),
+    port: int = typer.Option(8501, "--port", help="Port for the Streamlit server"),
+) -> None:
+    """Launch the Streamlit web UI."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    ui_path = Path(__file__).parent / "ui.py"
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(ui_path),
+        "--server.address",
+        host,
+        "--server.port",
+        str(port),
+    ]
+    rprint(f"[bold green]Starting cv-sender UI[/bold green] → http://{host}:{port}")
+    try:
+        subprocess.run(cmd, check=True)
+    except KeyboardInterrupt:
+        pass
+    except subprocess.CalledProcessError as exc:
+        rprint(f"[red]Streamlit exited with code {exc.returncode}[/red]")
+        raise typer.Exit(exc.returncode) from exc
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 
