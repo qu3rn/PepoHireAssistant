@@ -343,6 +343,48 @@ cv-sender/
 
 ---
 
+## Form filling
+
+Click **Fill application form** from the offer card to open the job board in a browser, auto-fill your profile data, and pause for your review before you hit _Submit_.
+
+### Supported fillers
+
+| Portal | Source key | Notes |
+|---|---|---|
+| RocketJobs | `rocketjobs.pl` | Name, email, phone, LinkedIn, GitHub; CV upload |
+| JustJoinIT | `justjoin.it` | Standard apply form; warns if login required |
+| NoFluffJobs | `nofluffjobs.com` | Email, phone, salary; warns if login / registration wall detected |
+| Pracuj.pl | `pracuj.pl` | Warns if login wall detected |
+| Generic fallback | `*` | Label/placeholder heuristics for any other board |
+
+### Safety rules
+
+- **`auto_submit` is always `False`** – the form is never submitted automatically.
+- Login walls, CAPTCHAs, and bot-detection mechanisms are **not** bypassed.
+- If a source-specific filler fails entirely, the generic heuristic filler is tried as a fallback.
+- The result always carries a `status` (`filled` / `partial` / `failed`), lists of filled/missing fields, and any warnings.
+
+### Debug mode
+
+To debug form filling, set the following in `config/settings.yaml`:
+
+```yaml
+form_filling:
+  debug: true       # take a screenshot on failure (saved to data/debug/screenshots/)
+  slow_mo_ms: 500   # slow down each Playwright action by 500 ms
+  headless: false   # keep the browser window visible (default)
+```
+
+### Known limitations
+
+- Sites that require login or registration cannot be filled without prior manual authentication.
+- CAPTCHAs must be solved manually.
+- File-upload fields backed by hidden `<input type="file">` elements may not work on all sites.
+- Job boards served through external ATS (e.g., Greenhouse, Lever, Workday) are handled by the generic filler only.
+- Site structure changes may break specific selectors; report issues if a filler stops working.
+
+---
+
 ## Roadmap
 
 - [ ] Automated offer scraping from job boards

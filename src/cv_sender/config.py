@@ -60,6 +60,14 @@ class LMStudioConfig(BaseModel):
     model: str = "local-model"
 
 
+class FormFillingConfig(BaseModel):
+    """Settings for Playwright browser-based form filling."""
+
+    debug: bool = False
+    slow_mo_ms: int = 0
+    headless: bool = False
+
+
 class Settings(BaseModel):
     """Application-wide search and scoring settings."""
 
@@ -73,6 +81,7 @@ class Settings(BaseModel):
     require_manual_confirm: bool = True
     skip_without_salary: bool = False
     lm_studio: LMStudioConfig = LMStudioConfig()
+    form_filling: FormFillingConfig = FormFillingConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +112,8 @@ def load_settings(path: str | None = None) -> Settings:
     # Nested LMStudioConfig
     if "lm_studio" in data and isinstance(data["lm_studio"], dict):
         data["lm_studio"] = LMStudioConfig.model_validate(data["lm_studio"])
+    if "form_filling" in data and isinstance(data["form_filling"], dict):
+        data["form_filling"] = FormFillingConfig.model_validate(data["form_filling"])
     return Settings.model_validate(data)
 
 

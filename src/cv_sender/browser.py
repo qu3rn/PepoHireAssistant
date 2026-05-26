@@ -9,14 +9,14 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 
 
 @contextmanager
-def browser_session(headless: bool = False) -> Generator[tuple[Page, Browser], None, None]:
+def browser_session(headless: bool = False, slow_mo: int = 0) -> Generator[tuple[Page, Browser], None, None]:
     """Context manager that yields ``(page, browser)`` and cleans up on exit."""
     playwright: Playwright
     browser: Browser
     context: BrowserContext
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=headless)
+        browser = playwright.chromium.launch(headless=headless, slow_mo=slow_mo)
         context = browser.new_context(
             viewport={"width": 1280, "height": 900},
             locale="pl-PL",

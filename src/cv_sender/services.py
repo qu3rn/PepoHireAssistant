@@ -12,6 +12,8 @@ from cv_sender.models import (
     ApplicationStatus,
     BatchImportItemResult,
     BatchImportResult,
+    FillResult,
+    FillStatus,
     ImportStatus,
     Offer,
 )
@@ -356,6 +358,70 @@ def fill_application_for_offer(offer_id: str) -> tuple[bool, str, Application | 
         event_details="Form filled via cv-sender UI; awaiting manual submission.",
     )
     return True, success_msg, app
+
+
+def fill_application_form(offer_id: str, *, auto_submit: bool = False) -> FillResult:
+    """Fill the application form for *offer_id* using a source-specific filler.
+
+    Returns a :class:`FillResult` describing which fields were filled, any
+    warnings, and the overall status (``filled`` / ``partial`` / ``failed``).
+
+    The form is **never** submitted automatically.  ``auto_submit`` must remain
+    ``False``; passing ``True`` has no effect on the current implementation.
+    """
+    offer = get_offer_by_id(offer_id)
+    if offer is None:
+        return FillResult(
+            status=FillStatus.FAILED,
+            offer_id=offer_id,
+            error=f"Offer '{offer_id}' not found.",
+        )
+
+    profile = load_profile()
+    settings = load_settings()
+    existing = _find_application_for_offer(offer_id)
+
+    try:
+        from cv_sender.form_filler import fill_application_with_result  # noqa: PLC0415
+
+        result = fill_application_with_result(offer, profile, settings, auto_submit=auto_submit)
+    except Exception as exc:  # noqa: BLE001
+        result = FillResult(
+            status=FillStatus.FAILED,
+            offer_id=offer_id,
+            url=offer.url,
+            error=f"Browser error: {exc}",
+        )
+
+    # Persist application record with fill outcome
+    app_status = (
+        ApplicationStatus.READY_TO_SEND
+        if result.status != FillStatus.FAILED
+        else ApplicationStatus.FAILED
+    )
+    event_type = "form_filled" if result.status != FillStatus.FAILED else "fill_failed"
+
+    detail_parts: list[str] = []
+    if result.fields_filled:
+        detail_parts.append(f"Filled: {', '.join(result.fields_filled)}")
+    if result.fields_missing:
+        detail_parts.append(f"Missing: {', '.join(result.fields_missing)}")
+    if result.warnings:
+        detail_parts.append(f"Warnings: {'; '.join(result.warnings)}")
+    if result.error:
+        detail_parts.append(f"Error: {result.error}")
+    event_details = " | ".join(detail_parts) or f"Status: {result.status}"
+
+    _upsert_application(
+        existing=existing,
+        offer=offer,
+        profile_cv=profile.cv_path,
+        status=app_status,
+        event_type=event_type,
+        event_details=event_details,
+    )
+
+    return result
 
 
 def update_application_status(
