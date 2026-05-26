@@ -32,7 +32,7 @@ class Profile(BaseModel):
     linkedin: str = ""
     github: str = ""
     portfolio: str = ""
-    cv_path: str = ""
+    cv_path: str = ""  # Legacy single-CV path; used when cv_profiles is empty
     expected_salary_b2b: int | None = None
     expected_salary_uop: int | None = None
     availability: str = ""
@@ -40,6 +40,9 @@ class Profile(BaseModel):
     english_level: str = ""
     preferred_work_mode: str = ""
     consents: Consents = Consents()
+    # Multi-CV support
+    default_cv_id: str = ""
+    cv_profiles: list[dict] = []  # raw dicts; parsed by cv_profiles.load_cv_profiles()
 
     @property
     def full_name(self) -> str:

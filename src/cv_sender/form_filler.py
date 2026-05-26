@@ -28,7 +28,12 @@ _PORTAL_MAP: dict[str, type[BasePortalFiller]] = {
 }
 
 
-def _choose_filler(url: str, profile: Profile, settings: Settings) -> BasePortalFiller:
+def _choose_filler(
+    url: str,
+    profile: Profile,
+    settings: Settings,
+    cv_path_override: str = "",
+) -> BasePortalFiller:
     """Return the most specific :class:`BasePortalFiller` for *url*.
 
     Hostname matching is used instead of substring search to prevent a URL
@@ -41,7 +46,7 @@ def _choose_filler(url: str, profile: Profile, settings: Settings) -> BasePortal
         hostname = ""
 
     filler_cls = _PORTAL_MAP.get(hostname.lower(), GenericFiller)
-    return filler_cls(profile=profile, settings=settings)
+    return filler_cls(profile=profile, settings=settings, cv_path_override=cv_path_override)
 
 
 def fill_application(
@@ -70,6 +75,7 @@ def fill_application_with_result(
     settings: Settings,
     *,
     auto_submit: bool = False,
+    cv_path_override: str = "",
 ) -> FillResult:
     """Fill the application form and return a structured :class:`FillResult`.
 
@@ -82,7 +88,7 @@ def fill_application_with_result(
     ``auto_submit`` must remain ``False`` (the default); the form is **never**
     submitted automatically.
     """
-    filler = _choose_filler(offer.url, profile, settings)
+    filler = _choose_filler(offer.url, profile, settings, cv_path_override=cv_path_override)
 
     # If the selected filler is already the generic one, just run it
     if isinstance(filler, GenericFiller):
@@ -96,7 +102,7 @@ def fill_application_with_result(
             f"Source-specific filler ({filler.__class__.source}) failed: {result.error}. "
             "Falling back to GenericFiller."
         )
-        generic_filler = GenericFiller(profile=profile, settings=settings)
+        generic_filler = GenericFiller(profile=profile, settings=settings, cv_path_override=cv_path_override)
         result = generic_filler.fill(offer, auto_submit=auto_submit)
 
     return result

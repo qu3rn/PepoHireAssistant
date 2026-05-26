@@ -455,6 +455,61 @@ Debug snapshots are designed to not contain sensitive personal data:
 
 ---
 
+## CV Profiles
+
+Configure multiple CV files so the right one is uploaded automatically for each job offer.
+
+### Configuration
+
+Add a `cv_profiles` section to `config/profile.yaml`:
+
+```yaml
+default_cv_id: "frontend_react"   # fallback when scores are tied
+
+cv_profiles:
+  - id: "frontend_react"
+    name: "Frontend React CV"
+    path: "data/cv/frontend_react.pdf"
+    target_roles: ["Frontend Developer", "React Developer"]
+    technologies: ["React", "TypeScript", "Next.js"]
+    seniority: ["Mid", "Senior"]
+    priority: 100    # higher = preferred on ties
+    active: true
+
+  - id: "fullstack"
+    name: "Fullstack CV"
+    path: "data/cv/fullstack.pdf"
+    target_roles: ["Fullstack Developer", "Software Engineer"]
+    technologies: ["Node.js", "React", "TypeScript", "PostgreSQL"]
+    seniority: ["Senior"]
+    priority: 80
+    active: true
+```
+
+When `cv_profiles` is empty, the legacy `cv_path` field is used for all offers (backward-compatible).
+
+### Automatic selection scoring
+
+Each active CV is scored against the offer title + description + technology list:
+
+| Criteria | Points |
+|---|---|
+| Any `target_roles` entry found in offer text | +40 |
+| Each `technologies` entry found in offer | +10 (max 40) |
+| Any `seniority` entry found in offer title | +15 |
+| `priority` bonus | `priority ÷ 10` (max 10) |
+| File missing or profile inactive | −100 (disqualified) |
+
+The highest-scoring profile is selected.  Ties are broken by `priority`, then by `default_cv_id`.
+
+### UI
+
+- **Profile page → CV Profiles**: shows a table of all configured profiles with a file-exists indicator.  Edit `config/profile.yaml` to add or modify profiles.
+- **Offer card → CV selection**: shows the auto-recommended CV (with reasons) and a dropdown to override before filling.
+- **Applications page**: shows the CV name used for each application.
+
+---
+
 ## Roadmap
 
 - [ ] Automated offer scraping from job boards
@@ -467,3 +522,4 @@ Debug snapshots are designed to not contain sensitive personal data:
 - [x] Batch URL import with normalization and duplicate detection
 - [x] Save to Job Assistant bookmarklet (local FastAPI receiver)
 - [x] Source-specific offer extractors (RocketJobs, JustJoinIT, NoFluffJobs, Pracuj.pl)
+- [x] CV profiles with automatic per-offer selection

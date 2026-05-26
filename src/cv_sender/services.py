@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from cv_sender.config import load_profile, load_settings
+from cv_sender.cv_profiles import CVProfile, CVSelectionResult, load_cv_profiles, select_cv_for_offer_object, validate_cv_profiles as _validate_cv_profiles
 from cv_sender.llm import get_llm_score
 from cv_sender.models import (
     Application,
@@ -360,11 +361,70 @@ def fill_application_for_offer(offer_id: str) -> tuple[bool, str, Application | 
     return True, success_msg, app
 
 
-def fill_application_form(offer_id: str, *, auto_submit: bool = False) -> FillResult:
+# ---------------------------------------------------------------------------
+# CV profile service helpers
+# ---------------------------------------------------------------------------
+
+
+def list_cv_profiles() -> list[CVProfile]:
+    """Return all configured :class:`CVProfile` objects.
+
+    When no ``cv_profiles`` are configured, falls back to a synthetic profile
+    built from ``profile.cv_path`` (backward-compatible behaviour).
+    """
+    return load_cv_profiles(load_profile())
+
+
+def get_default_cv_profile() -> CVProfile | None:
+    """Return the CV profile with ``id == profile.default_cv_id``, or the first one."""
+    profile = load_profile()
+    profiles = load_cv_profiles(profile)
+    if not profiles:
+        return None
+    if profile.default_cv_id:
+        found = next((cv for cv in profiles if cv.id == profile.default_cv_id), None)
+        if found:
+            return found
+    return profiles[0]
+
+
+def select_cv_for_offer(offer_id: str) -> CVSelectionResult:
+    """Select the best CV for *offer_id* using deterministic scoring."""
+    offer = get_offer_by_id(offer_id)
+    if offer is None:
+        return CVSelectionResult(
+            warnings=[f"Offer '{offer_id}' not found."]
+        )
+    return select_cv_for_offer_object_svc(offer)
+
+
+def select_cv_for_offer_object_svc(offer: Offer) -> CVSelectionResult:
+    """Select the best CV for *offer* using deterministic scoring."""
+    profile = load_profile()
+    profiles = load_cv_profiles(profile)
+    return select_cv_for_offer_object(offer, profiles, default_cv_id=profile.default_cv_id)
+
+
+def validate_cv_profiles() -> list[str]:
+    """Return a list of warning strings for misconfigured CV profiles."""
+    profile = load_profile()
+    profiles = load_cv_profiles(profile)
+    return _validate_cv_profiles(profiles)
+
+
+def fill_application_form(
+    offer_id: str,
+    *,
+    auto_submit: bool = False,
+    selected_cv_id: str = "",
+) -> FillResult:
     """Fill the application form for *offer_id* using a source-specific filler.
 
     Returns a :class:`FillResult` describing which fields were filled, any
     warnings, and the overall status (``filled`` / ``partial`` / ``failed``).
+
+    Pass *selected_cv_id* to override automatic CV selection.  When empty,
+    the best matching CV is chosen automatically via :func:`select_cv_for_offer`.
 
     The form is **never** submitted automatically.  ``auto_submit`` must remain
     ``False``; passing ``True`` has no effect on the current implementation.
@@ -381,10 +441,39 @@ def fill_application_form(offer_id: str, *, auto_submit: bool = False) -> FillRe
     settings = load_settings()
     existing = _find_application_for_offer(offer_id)
 
+    # CV selection
+    profiles = load_cv_profiles(profile)
+    if selected_cv_id:
+        cv_sel = next((cv for cv in profiles if cv.id == selected_cv_id), None)
+        if cv_sel is None:
+            cv_sel_result = CVSelectionResult(
+                selected_cv_id=selected_cv_id,
+                warnings=[f"CV profile '{selected_cv_id}' not found; falling back to auto-select."],
+            )
+            cv_sel_result = select_cv_for_offer_object(offer, profiles, default_cv_id=profile.default_cv_id)
+        else:
+            cv_sel_result = CVSelectionResult(
+                selected_cv_id=cv_sel.id,
+                selected_cv_name=cv_sel.name or cv_sel.id,
+                selected_cv_path=cv_sel.path,
+                score=cv_sel.priority,
+                reasons=["Manually selected"],
+            )
+    else:
+        cv_sel_result = select_cv_for_offer_object(offer, profiles, default_cv_id=profile.default_cv_id)
+
+    cv_path_override = cv_sel_result.selected_cv_path
+
     try:
         from cv_sender.form_filler import fill_application_with_result  # noqa: PLC0415
 
-        result = fill_application_with_result(offer, profile, settings, auto_submit=auto_submit)
+        result = fill_application_with_result(
+            offer,
+            profile,
+            settings,
+            auto_submit=auto_submit,
+            cv_path_override=cv_path_override,
+        )
     except Exception as exc:  # noqa: BLE001
         result = FillResult(
             status=FillStatus.FAILED,
@@ -402,6 +491,8 @@ def fill_application_form(offer_id: str, *, auto_submit: bool = False) -> FillRe
     event_type = "form_filled" if result.status != FillStatus.FAILED else "fill_failed"
 
     detail_parts: list[str] = []
+    if cv_sel_result.selected_cv_name:
+        detail_parts.append(f"CV: {cv_sel_result.selected_cv_name}")
     if result.fields_filled:
         detail_parts.append(f"Filled: {', '.join(result.fields_filled)}")
     if result.fields_missing:
@@ -415,7 +506,10 @@ def fill_application_form(offer_id: str, *, auto_submit: bool = False) -> FillRe
     _upsert_application(
         existing=existing,
         offer=offer,
-        profile_cv=profile.cv_path,
+        profile_cv=cv_path_override or profile.cv_path,
+        selected_cv_id=cv_sel_result.selected_cv_id,
+        selected_cv_name=cv_sel_result.selected_cv_name,
+        selected_cv_path=cv_sel_result.selected_cv_path,
         status=app_status,
         event_type=event_type,
         event_details=event_details,
@@ -488,6 +582,9 @@ def _upsert_application(
     existing: Application | None,
     offer: Offer,
     profile_cv: str,
+    selected_cv_id: str = "",
+    selected_cv_name: str = "",
+    selected_cv_path: str = "",
     status: ApplicationStatus,
     event_type: str,
     event_details: str,
@@ -501,12 +598,17 @@ def _upsert_application(
     )
 
     if existing is not None:
-        updated = existing.model_copy(
-            update={
-                "status": status,
-                "updated_at": now,
-            }
-        )
+        update_dict: dict = {
+            "status": status,
+            "updated_at": now,
+        }
+        if selected_cv_id:
+            update_dict["selected_cv_id"] = selected_cv_id
+        if selected_cv_name:
+            update_dict["selected_cv_name"] = selected_cv_name
+        if selected_cv_path:
+            update_dict["selected_cv_path"] = selected_cv_path
+        updated = existing.model_copy(update=update_dict)
         updated.events.append(new_event)
         update_application(updated)
         return updated
@@ -525,6 +627,9 @@ def _upsert_application(
         status=status,
         score=offer.score,
         cv_file=profile_cv,
+        selected_cv_id=selected_cv_id,
+        selected_cv_name=selected_cv_name,
+        selected_cv_path=selected_cv_path,
         events=[new_event],
     )
     add_application(app)
@@ -587,16 +692,29 @@ def fill_application_form_retry(
     settings = load_settings()
     existing = _find_application_for_offer(offer_id)
 
+    # Reuse last known CV selection from existing application if available
+    cv_path_override = (existing.selected_cv_path if existing and existing.selected_cv_path else "") or ""
+    if not cv_path_override:
+        profiles = load_cv_profiles(profile)
+        cv_sel_result = select_cv_for_offer_object(offer, profiles, default_cv_id=profile.default_cv_id)
+        cv_path_override = cv_sel_result.selected_cv_path
+    else:
+        cv_sel_result = CVSelectionResult(
+            selected_cv_id=existing.selected_cv_id if existing else "",
+            selected_cv_name=existing.selected_cv_name if existing else "",
+            selected_cv_path=cv_path_override,
+        )
+
     try:
         if force_generic:
             from cv_sender.portals.generic import GenericFiller  # noqa: PLC0415
 
-            filler = GenericFiller(profile=profile, settings=settings)
+            filler = GenericFiller(profile=profile, settings=settings, cv_path_override=cv_path_override)
             result = filler.fill(offer, auto_submit=False)
         else:
             from cv_sender.form_filler import fill_application_with_result  # noqa: PLC0415
 
-            result = fill_application_with_result(offer, profile, settings, auto_submit=False)
+            result = fill_application_with_result(offer, profile, settings, auto_submit=False, cv_path_override=cv_path_override)
     except Exception as exc:  # noqa: BLE001
         result = FillResult(
             status=FillStatus.FAILED,
@@ -614,6 +732,8 @@ def fill_application_form_retry(
     detail_parts: list[str] = []
     if force_generic:
         detail_parts.append("via GenericFiller")
+    if cv_sel_result.selected_cv_name:
+        detail_parts.append(f"CV: {cv_sel_result.selected_cv_name}")
     if result.fields_filled:
         detail_parts.append(f"Filled: {', '.join(result.fields_filled)}")
     if result.error:
@@ -623,7 +743,10 @@ def fill_application_form_retry(
     _upsert_application(
         existing=existing,
         offer=offer,
-        profile_cv=profile.cv_path,
+        profile_cv=cv_path_override or profile.cv_path,
+        selected_cv_id=cv_sel_result.selected_cv_id,
+        selected_cv_name=cv_sel_result.selected_cv_name,
+        selected_cv_path=cv_sel_result.selected_cv_path,
         status=app_status,
         event_type=event_type,
         event_details=event_details,

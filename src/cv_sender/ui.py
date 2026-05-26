@@ -414,9 +414,47 @@ def _page_offers() -> None:
                 st.rerun()
 
             if btn_col4.button("Fill application form", key=f"fill_{offer.id}"):
+                # Determine selected CV from session state dropdown
+                _cv_key = f"cv_sel_{offer.id}"
+                _chosen_cv_id = st.session_state.get(_cv_key, "")
                 with st.spinner("Opening browser and filling form…"):
-                    result = services.fill_application_form(offer.id)
+                    result = services.fill_application_form(offer.id, selected_cv_id=_chosen_cv_id)
                 _render_fill_result(result, offer.id)
+
+            # CV selection expander (shown below buttons)
+            _cv_profiles = services.list_cv_profiles()
+            if _cv_profiles:
+                with st.expander("CV selection", expanded=False):
+                    _cv_rec = services.select_cv_for_offer_object_svc(offer)
+                    if _cv_rec.selected_cv_id:
+                        st.info(
+                            f"Auto-recommended: **{_cv_rec.selected_cv_name or _cv_rec.selected_cv_id}**"
+                            + (f"  (score {_cv_rec.score})" if _cv_rec.score else "")
+                        )
+                        if _cv_rec.reasons:
+                            st.caption("Reasons: " + ", ".join(_cv_rec.reasons[:3]))
+                    for w in _cv_rec.warnings:
+                        st.warning(w)
+                    _cv_options = {cv.id: (cv.name or cv.id) for cv in _cv_profiles}
+                    _default_idx = (
+                        list(_cv_options.keys()).index(_cv_rec.selected_cv_id)
+                        if _cv_rec.selected_cv_id in _cv_options
+                        else 0
+                    )
+                    _selected = st.selectbox(
+                        "Override CV",
+                        options=list(_cv_options.keys()),
+                        format_func=lambda k: _cv_options[k],
+                        index=_default_idx,
+                        key=f"cv_sel_{offer.id}",
+                    )
+                    # Show whether the selected file exists
+                    _sel_cv_obj = next((cv for cv in _cv_profiles if cv.id == _selected), None)
+                    if _sel_cv_obj:
+                        _path_ok = Path(_sel_cv_obj.path).exists() if _sel_cv_obj.path else False
+                        st.caption(
+                            f"Path: `{_sel_cv_obj.path}`  {'✅' if _path_ok else '⚠️ file not found'}"
+                        )
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +488,8 @@ def _page_applications() -> None:
             c2.markdown(f"**Score:** {app.score or '—'}")
             c3.markdown(f"**Created:** {app.created_at.date()}")
             c3.markdown(f"**Updated:** {app.updated_at.date()}")
+            if app.selected_cv_name or app.selected_cv_id:
+                c3.markdown(f"**CV used:** {app.selected_cv_name or app.selected_cv_id}")
             if app.url:
                 st.markdown(f"[Offer URL]({app.url})")
 
@@ -583,9 +623,48 @@ def _page_profile() -> None:
             english_level=english_level,
             preferred_work_mode=preferred_work_mode,
             consents=profile.consents,
+            default_cv_id=profile.default_cv_id,
+            cv_profiles=profile.cv_profiles,
         )
         save_profile(updated)
         st.success("Profile saved to `config/profile.yaml`.")
+
+    # CV Profiles section (read-only, outside form)
+    st.markdown("---")
+    st.subheader("CV Profiles")
+    _cv_profiles_all = services.list_cv_profiles()
+    _cv_warnings = services.validate_cv_profiles()
+    if _cv_warnings:
+        for _w in _cv_warnings:
+            st.warning(_w)
+    if not _cv_profiles_all:
+        st.info(
+            "No CV profiles configured. Add `cv_profiles:` to `config/profile.yaml` "
+            "to enable automatic CV selection."
+        )
+    else:
+        import pandas as _pd  # noqa: PLC0415
+
+        _rows = []
+        for cv in _cv_profiles_all:
+            _file_ok = Path(cv.path).exists() if cv.path else False
+            _rows.append({
+                "ID": cv.id,
+                "Name": cv.name or cv.id,
+                "Path": cv.path or "—",
+                "File": "✅" if _file_ok else "⚠️",
+                "Roles": ", ".join(cv.target_roles) or "—",
+                "Tech": ", ".join(cv.technologies) or "—",
+                "Seniority": ", ".join(cv.seniority) or "—",
+                "Priority": cv.priority,
+                "Active": "✅" if cv.active else "❌",
+            })
+        st.dataframe(_pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+        if profile.default_cv_id:
+            st.caption(f"Default CV id: `{profile.default_cv_id}`")
+        st.caption(
+            "To add or modify CV profiles, edit `cv_profiles:` in `config/profile.yaml`."
+        )
 
 
 # ---------------------------------------------------------------------------

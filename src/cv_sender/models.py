@@ -177,6 +177,10 @@ class Application(BaseModel):
     cv_file: str = ""
     cover_letter_file: str = ""
     notes: str = ""
+    # CV profile tracking (populated when multi-CV selection is used)
+    selected_cv_id: str = ""
+    selected_cv_name: str = ""
+    selected_cv_path: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
     events: list[ApplicationEvent] = Field(default_factory=list)
