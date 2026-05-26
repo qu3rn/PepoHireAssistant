@@ -68,10 +68,17 @@ class BasePortalFiller(ABC):
 
     source: str = "generic"
 
-    def __init__(self, profile: Profile, settings: Settings, headless: bool = False) -> None:
+    def __init__(
+        self,
+        profile: Profile,
+        settings: Settings,
+        headless: bool = False,
+        cv_path_override: str = "",
+    ) -> None:
         self.profile = profile
         self.settings = settings
         self.headless = headless
+        self.cv_path_override = cv_path_override
         self._result: FillResult | None = None
         self._step_log: StepLogger = StepLogger()
 
@@ -357,8 +364,12 @@ class BasePortalFiller(ABC):
         )
 
     def upload_cv(self, page: Page) -> bool:
-        """Upload the CV via a file input.  Returns True on success."""
-        cv_path = self.profile.cv_path
+        """Upload the CV via a file input.  Returns True on success.
+
+        If ``cv_path_override`` was set on the filler instance (via CV profile
+        selection), that path takes precedence over ``profile.cv_path``.
+        """
+        cv_path = self.cv_path_override or self.profile.cv_path
         if not cv_path:
             self._step_log.log("upload_cv", status="skipped", message="cv_path not set")
             return False

@@ -8,7 +8,7 @@ city: "Warszawa"
 linkedin: "https://linkedin.com/in/jankowalski"
 github: "https://github.com/jankowalski"
 portfolio: "https://jankowalski.dev"
-cv_path: "data/cv.pdf"
+cv_path: "data/cv.pdf"  # Legacy single-CV path (used when cv_profiles is empty)
 
 # Salary expectations (PLN/month)
 expected_salary_b2b: 20000
@@ -29,3 +29,33 @@ consents:
   data_processing: true      # Required for job applications
   future_recruitment: true   # Allow contact for future roles
   marketing: false           # Do not send marketing emails
+
+# ---------------------------------------------------------------------------
+# Multi-CV support (optional)
+# Leave cv_profiles empty to use the legacy cv_path above for all applications.
+# ---------------------------------------------------------------------------
+
+# ID of the CV profile to use as the default fallback when scoring is tied
+default_cv_id: "frontend_react"
+
+# List of CV profiles; the best match is chosen automatically per offer.
+# Scoring weights: role match +40, each tech match +10 (max 40), seniority +15,
+# priority bonus (priority/10, max 10).  Missing file or inactive → score -100.
+cv_profiles:
+  - id: "frontend_react"
+    name: "Frontend React CV"
+    path: "data/cv/frontend_react.pdf"
+    target_roles: ["Frontend Developer", "React Developer", "UI Engineer"]
+    technologies: ["React", "TypeScript", "Next.js", "CSS"]
+    seniority: ["Mid", "Senior"]
+    priority: 100
+    active: true
+
+  - id: "fullstack"
+    name: "Fullstack CV"
+    path: "data/cv/fullstack.pdf"
+    target_roles: ["Fullstack Developer", "Software Engineer"]
+    technologies: ["Node.js", "React", "TypeScript", "PostgreSQL"]
+    seniority: ["Senior", "Lead"]
+    priority: 80
+    active: true
