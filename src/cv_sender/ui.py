@@ -42,7 +42,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Bookmarklet"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -592,6 +592,78 @@ def _page_settings() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Bookmarklet page
+# ---------------------------------------------------------------------------
+
+
+def _page_bookmarklet() -> None:
+    from cv_sender.bookmarklet_server import BOOKMARKLET_JS
+
+    st.title("Bookmarklet – Save to Job Assistant")
+
+    st.markdown(
+        """
+        The **Save to Job Assistant** bookmarklet lets you import any job offer page
+        directly from your browser by clicking a single bookmark.
+
+        > ⚠️ This does **not** crawl or scrape the page content.  
+        > The offer is stored with a title derived from the URL path.
+        > Fill in company, salary, and description manually via the Offers page.
+        """
+    )
+
+    st.markdown("---")
+    st.subheader("1 · Start the bookmarklet server")
+    st.markdown(
+        "Run this command in a **separate terminal** while you browse:"
+    )
+    st.code("cv-sender bookmarklet-server", language="bash")
+    st.caption(
+        "The server listens on `http://127.0.0.1:8765` and is only reachable"
+        " from this machine."
+    )
+
+    st.markdown("---")
+    st.subheader("2 · Create the browser bookmark")
+    st.markdown(
+        """
+        1. Open your browser's bookmarks bar.  
+        2. Create a new bookmark (right-click the bookmarks bar → *Add page…*).  
+        3. Set the **name** to: `Save to Job Assistant`  
+        4. Set the **URL / address** to the JavaScript code below (copy the entire line):
+        """
+    )
+    st.code(BOOKMARKLET_JS, language="javascript")
+
+    st.markdown("---")
+    st.subheader("3 · Use it")
+    st.markdown(
+        """
+        1. Make sure the **bookmarklet server** is running (`cv-sender bookmarklet-server`).  
+        2. Make sure the **Streamlit UI** is running (`cv-sender ui`).  
+        3. Open any job offer page in your browser.  
+        4. Click the **Save to Job Assistant** bookmark.  
+        5. A new tab opens showing the import result (imported / duplicate / error).  
+        6. Come back to this UI → **Offers** to review, score, and manage the imported offer.
+        """
+    )
+
+    st.markdown("---")
+    st.subheader("Local endpoints")
+    c1, c2 = st.columns(2)
+    c1.markdown("**Bookmarklet receiver**")
+    c1.code("http://127.0.0.1:8765/import?url=<encoded-url>")
+    c2.markdown("**Health check**")
+    c2.code("http://127.0.0.1:8765/health")
+
+    st.markdown("---")
+    st.info(
+        "🔒 **Security**: the bookmarklet server binds to `127.0.0.1` only. "
+        "It is not reachable from other machines on your network."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
 
@@ -605,3 +677,5 @@ elif page == "Profile":
     _page_profile()
 elif page == "Settings":
     _page_settings()
+elif page == "Bookmarklet":
+    _page_bookmarklet()
