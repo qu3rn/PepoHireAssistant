@@ -529,3 +529,104 @@ def _upsert_application(
     )
     add_application(app)
     return app
+
+
+# ---------------------------------------------------------------------------
+# Debug run helpers
+# ---------------------------------------------------------------------------
+
+
+def get_debug_runs(limit: int = 50) -> list:
+    """Return up to *limit* recent debug runs, newest-first."""
+    from cv_sender.form_debug import load_debug_runs  # noqa: PLC0415
+
+    return load_debug_runs(limit=limit)
+
+
+def get_debug_run(run_id: str) -> object | None:
+    """Load a single debug run by *run_id*."""
+    from cv_sender.form_debug import load_debug_run  # noqa: PLC0415
+
+    return load_debug_run(run_id)
+
+
+def get_debug_step_log(run_id: str) -> list[dict]:
+    """Load step log entries for *run_id*."""
+    from cv_sender.form_debug import load_step_log  # noqa: PLC0415
+
+    return load_step_log(run_id)
+
+
+def get_debug_form_snapshot(run_id: str) -> list[dict]:
+    """Load form snapshot for *run_id*."""
+    from cv_sender.form_debug import load_form_snapshot  # noqa: PLC0415
+
+    return load_form_snapshot(run_id)
+
+
+def fill_application_form_retry(
+    offer_id: str,
+    *,
+    force_generic: bool = False,
+) -> "FillResult":
+    """Re-run form filling for *offer_id*.
+
+    When *force_generic* is ``True``, the :class:`GenericFiller` is used
+    regardless of the offer's source URL, creating a new debug run.
+    ``auto_submit`` is always ``False``.
+    """
+    offer = get_offer_by_id(offer_id)
+    if offer is None:
+        return FillResult(
+            status=FillStatus.FAILED,
+            offer_id=offer_id,
+            error=f"Offer '{offer_id}' not found.",
+        )
+
+    profile = load_profile()
+    settings = load_settings()
+    existing = _find_application_for_offer(offer_id)
+
+    try:
+        if force_generic:
+            from cv_sender.portals.generic import GenericFiller  # noqa: PLC0415
+
+            filler = GenericFiller(profile=profile, settings=settings)
+            result = filler.fill(offer, auto_submit=False)
+        else:
+            from cv_sender.form_filler import fill_application_with_result  # noqa: PLC0415
+
+            result = fill_application_with_result(offer, profile, settings, auto_submit=False)
+    except Exception as exc:  # noqa: BLE001
+        result = FillResult(
+            status=FillStatus.FAILED,
+            offer_id=offer_id,
+            url=offer.url,
+            error=f"Browser error: {exc}",
+        )
+
+    app_status = (
+        ApplicationStatus.READY_TO_SEND
+        if result.status != FillStatus.FAILED
+        else ApplicationStatus.FAILED
+    )
+    event_type = "form_filled_retry" if result.status != FillStatus.FAILED else "fill_failed_retry"
+    detail_parts: list[str] = []
+    if force_generic:
+        detail_parts.append("via GenericFiller")
+    if result.fields_filled:
+        detail_parts.append(f"Filled: {', '.join(result.fields_filled)}")
+    if result.error:
+        detail_parts.append(f"Error: {result.error}")
+    event_details = " | ".join(detail_parts) or f"Status: {result.status}"
+
+    _upsert_application(
+        existing=existing,
+        offer=offer,
+        profile_cv=profile.cv_path,
+        status=app_status,
+        event_type=event_type,
+        event_details=event_details,
+    )
+
+    return result

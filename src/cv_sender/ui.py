@@ -43,7 +43,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Bookmarklet"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Bookmarklet", "Debug"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -76,6 +76,68 @@ def _salary_str(o: Offer | Application) -> str:
     if o.salary_min is not None:
         return f"{o.salary_min:,.0f}–{o.salary_max:,.0f} {o.currency}" if o.salary_max else f"{o.salary_min:,.0f} {o.currency}"
     return "—"
+
+
+def _render_fill_result(result: Any, offer_id: str) -> None:
+    """Render a FillResult in the UI including debug artifacts and retry buttons."""
+    if result.status == FillStatus.FILLED:
+        st.success("Application form filled successfully.")
+    elif result.status == FillStatus.PARTIAL:
+        st.warning("Form partially filled – some fields may need manual input.")
+    else:
+        st.error(result.error or "Form filling failed.")
+    if result.fields_filled:
+        st.info("Filled: " + ", ".join(result.fields_filled))
+    if result.fields_missing:
+        st.warning("Not filled: " + ", ".join(result.fields_missing))
+    for w in result.warnings:
+        st.warning(w)
+    if result.status in (FillStatus.FILLED, FillStatus.PARTIAL):
+        st.info(
+            "Application form has been filled. "
+            "Please review it manually before submitting."
+        )
+    if result.debug_run_id:
+        with st.expander("Form filling debug", expanded=result.status != FillStatus.FILLED):
+            st.caption(f"Debug run ID: `{result.debug_run_id}`")
+            _render_debug_artifacts(result.debug_run_id, result.screenshot_path)
+
+    rc1, rc2 = st.columns(2)
+    if rc1.button("Retry with same filler", key=f"retry_same_{offer_id}"):
+        with st.spinner("Retrying…"):
+            retry_result = services.fill_application_form_retry(offer_id)
+        _render_fill_result(retry_result, offer_id + "_r")
+    if rc2.button("Retry with GenericFiller", key=f"retry_generic_{offer_id}"):
+        with st.spinner("Retrying with generic filler…"):
+            retry_result = services.fill_application_form_retry(offer_id, force_generic=True)
+        _render_fill_result(retry_result, offer_id + "_rg")
+
+
+def _render_debug_artifacts(run_id: str, screenshot_path: str = "") -> None:
+    """Show step log, detected fields table, and screenshot for a debug run."""
+    step_log = services.get_debug_step_log(run_id)
+    if step_log:
+        import pandas as pd
+
+        df = pd.DataFrame(step_log)[["timestamp", "action", "target", "status", "message"]]
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.caption("No step log available.")
+
+    snapshot = services.get_debug_form_snapshot(run_id)
+    if snapshot:
+        with st.expander(f"Detected form fields ({len(snapshot)})"):
+            import pandas as pd
+
+            st.dataframe(pd.DataFrame(snapshot), use_container_width=True)
+
+    if screenshot_path:
+        from pathlib import Path as _Path
+
+        p = _Path(screenshot_path)
+        if p.exists():
+            with st.expander("Screenshot"):
+                st.image(str(p), use_container_width=True)
 
 
 def _rescore_offer(offer: Offer, settings: Settings) -> Offer:
@@ -354,23 +416,7 @@ def _page_offers() -> None:
             if btn_col4.button("Fill application form", key=f"fill_{offer.id}"):
                 with st.spinner("Opening browser and filling form…"):
                     result = services.fill_application_form(offer.id)
-                if result.status == FillStatus.FILLED:
-                    st.success("Application form filled successfully.")
-                elif result.status == FillStatus.PARTIAL:
-                    st.warning("Form partially filled – some fields may need manual input.")
-                else:
-                    st.error(result.error or "Form filling failed.")
-                if result.fields_filled:
-                    st.info("Filled: " + ", ".join(result.fields_filled))
-                if result.fields_missing:
-                    st.warning("Not filled: " + ", ".join(result.fields_missing))
-                for w in result.warnings:
-                    st.warning(w)
-                if result.status in (FillStatus.FILLED, FillStatus.PARTIAL):
-                    st.info(
-                        "Application form has been filled. "
-                        "Please review it manually before submitting."
-                    )
+                _render_fill_result(result, offer.id)
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +481,31 @@ def _page_applications() -> None:
                 with st.expander("Events"):
                     for ev in reversed(app.events):
                         st.caption(f"{ev.timestamp.strftime('%Y-%m-%d %H:%M')}  **{ev.event}**  {ev.details}")
+
+            # Show debug artifacts if the most recent fill event has a debug run
+            fill_events = [
+                ev for ev in app.events
+                if ev.event in ("form_filled", "fill_failed", "form_filled_retry", "fill_failed_retry")
+            ]
+            if fill_events:
+                last_fill = fill_events[-1]
+                # Extract run_id if embedded in details
+                import re as _re
+                run_id_match = _re.search(r'run_id[=:]\s*(\S+)', last_fill.details)
+                # Try loading latest run for this offer
+                runs = services.get_debug_runs(limit=20)
+                matching = [r for r in runs if r.offer_id == app.offer_id]
+                if matching:
+                    latest_run = matching[0]
+                    with st.expander(f"Form filling debug (run {latest_run.run_id[:8]}…)"):
+                        st.caption(f"Status: **{latest_run.status}** | Filler: {latest_run.filler_name} | {latest_run.started_at.strftime('%Y-%m-%d %H:%M')}")
+                        if latest_run.warnings:
+                            for w in latest_run.warnings:
+                                st.warning(w)
+                        if latest_run.error:
+                            st.error(latest_run.error)
+                        _render_debug_artifacts(latest_run.run_id, latest_run.screenshot_path)
+
 
 
 # ---------------------------------------------------------------------------
@@ -686,6 +757,76 @@ def _page_bookmarklet() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Debug page
+# ---------------------------------------------------------------------------
+
+
+def _page_debug() -> None:
+    st.title("Debug – Form filling runs")
+    st.caption(
+        "Shows the last 50 form-filling debug runs. "
+        "Enable `form_filling.debug: true` in settings to capture screenshots and form snapshots."
+    )
+
+    runs = services.get_debug_runs(limit=50)
+    if not runs:
+        st.info("No debug runs found. Debug artifacts are stored under `data/debug/form_filling/`.")
+        return
+
+    import pandas as pd
+
+    summary = pd.DataFrame(
+        [
+            {
+                "Started": r.started_at.strftime("%Y-%m-%d %H:%M"),
+                "Source": r.source,
+                "Filler": r.filler_name,
+                "Status": r.status,
+                "Fields filled": len(r.fields_filled),
+                "Fields missing": len(r.fields_missing),
+                "Warnings": len(r.warnings),
+                "Error": (r.error or "")[:60],
+                "Run ID": r.run_id[:8] + "…",
+                "_run_id": r.run_id,
+            }
+            for r in runs
+        ]
+    )
+    st.dataframe(summary.drop(columns=["_run_id"]), use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Inspect a run")
+    run_options = {r.run_id[:8] + "… " + r.started_at.strftime("%Y-%m-%d %H:%M") + f" [{r.source}]": r.run_id for r in runs}
+    selected_label = st.selectbox("Select run", list(run_options.keys()))
+    if selected_label:
+        selected_run_id = run_options[selected_label]
+        run = services.get_debug_run(selected_run_id)
+        if run:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Status", run.status)
+            c2.metric("Fields filled", len(run.fields_filled))
+            c3.metric("Fields missing", len(run.fields_missing))
+
+            st.markdown(f"**URL:** {run.url or '—'}")
+            st.markdown(f"**Offer ID:** `{run.offer_id or '—'}`")
+            st.markdown(f"**Filler:** {run.filler_name or '—'}")
+            st.markdown(f"**Run ID:** `{run.run_id}`")
+
+            if run.fields_filled:
+                st.success("Filled: " + ", ".join(run.fields_filled))
+            if run.fields_missing:
+                st.warning("Missing: " + ", ".join(run.fields_missing))
+            for w in run.warnings:
+                st.warning(w)
+            if run.error:
+                st.error(run.error)
+            if run.fields_detected_summary:
+                st.json(run.fields_detected_summary)
+
+            _render_debug_artifacts(run.run_id, run.screenshot_path)
+
+
+# ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
 
@@ -701,3 +842,5 @@ elif page == "Settings":
     _page_settings()
 elif page == "Bookmarklet":
     _page_bookmarklet()
+elif page == "Debug":
+    _page_debug()

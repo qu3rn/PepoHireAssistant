@@ -306,6 +306,7 @@ cv-sender/
 │   ├── llm.py          # LM Studio integration
 │   ├── browser.py      # Playwright session management
 │   ├── form_filler.py  # Orchestrates form filling
+│   ├── form_debug.py   # Debug artifacts: StepLogger, form snapshot, detection helpers
 │   ├── services.py     # Business-logic service layer (used by UI & CLI)
 │   ├── url_utils.py    # URL validation, normalization, source inference
 │   ├── bookmarklet_server.py  # FastAPI local server for the bookmarklet
@@ -315,6 +316,8 @@ cv-sender/
 │       ├── generic.py
 │       ├── rocketjobs.py
 │       ├── pracuj.py
+│       ├── justjoin.py
+│       ├── nofluffjobs.py
 │       └── linkedin.py
 └── src/cv_sender/extractors/  # Source-specific offer extractors
     ├── __init__.py     # Registry + HTTP fetch + public extract_offer()
@@ -328,8 +331,9 @@ cv-sender/
 │   ├── profile.example.yaml
 │   └── settings.example.yaml
 ├── data/
-│   ├── offers.json          (created by the app)
-│   └── applications.json    (created by the app)
+│   ├── offers.json             (created by the app)
+│   ├── applications.json       (created by the app)
+│   └── debug/form_filling/     (debug artifacts, one folder per run)
 └── tests/
     ├── test_config.py
     ├── test_models.py
@@ -338,7 +342,9 @@ cv-sender/
     ├── test_batch_import.py
     ├── test_bookmarklet_server.py
     ├── test_extractors.py
-    └── test_storage.py
+    ├── test_storage.py
+    ├── test_form_filler.py
+    └── test_form_debug.py
 ```
 
 ---
@@ -382,6 +388,70 @@ form_filling:
 - File-upload fields backed by hidden `<input type="file">` elements may not work on all sites.
 - Job boards served through external ATS (e.g., Greenhouse, Lever, Workday) are handled by the generic filler only.
 - Site structure changes may break specific selectors; report issues if a filler stops working.
+
+---
+
+## Debugging form filling
+
+When a fill is `partial` or `failed`, the app automatically captures debug artifacts and displays them in the UI.
+
+### Where debug files are stored
+
+```
+data/debug/form_filling/<run_id>/
+├── metadata.json       # Run summary: filler, status, fields, warnings, error
+├── step_log.json       # Chronological action log (no sensitive values)
+├── form_snapshot.json  # Sanitized list of detected form fields (no input values)
+└── screenshot.png      # Browser screenshot at time of failure
+```
+
+Each run has a UUID `run_id`. Artifacts are always written for non-successful fills; all artifacts are written when `debug: true`.
+
+### How to enable debug mode
+
+In `config/settings.yaml`:
+
+```yaml
+form_filling:
+  debug: true             # master switch: enables all artifact collection
+  slow_mo_ms: 250         # slow down Playwright actions (ms) for easier inspection
+  headless: false         # keep browser visible
+  screenshot_on_failure: true   # save screenshot.png on partial/failed
+  save_form_snapshot: true      # save sanitized form field list
+  save_step_log: true           # save action-by-action log
+```
+
+To disable individual artifacts while keeping `debug: true`, set the relevant flag to `false`.
+
+### Viewing debug output in the UI
+
+1. Open the **Debug** page from the sidebar.
+2. The page lists the 50 most recent runs with status, filler, and field counts.
+3. Select any run to view:
+   - Step log table (action, target selector, status, message)
+   - Detected fields table (tag, type, name, placeholder, label)
+   - Screenshot (if available)
+4. The **Applications** page shows a **Form filling debug** expander for each application that has a matching debug run.
+5. Immediately after filling, the fill result panel includes a **Form filling debug** expander and two retry buttons:
+   - **Retry with same filler** – re-runs the source-specific filler.
+   - **Retry with GenericFiller** – bypasses the source-specific filler and uses label/placeholder heuristics.
+
+### Privacy note
+
+Debug snapshots are designed to not contain sensitive personal data:
+
+- `step_log.json` records **which action was taken** and **which selector was targeted**, but **never the value typed**.
+  - Correct: `{ "action": "fill_email", "target": "label:Email", "status": "success" }`
+  - Wrong (never stored): `{ "action": "fill_email", "value": "my@email.com" }`
+- `form_snapshot.json` records form field structure (tag, type, name, placeholder, label text) but **never the current value** of any input.
+- `screenshot.png` captures the browser window at the time of failure. Depending on the page, this may include some pre-filled text. Keep screenshots private or disable them with `screenshot_on_failure: false`.
+
+### Known limitations
+
+- Screenshots may capture partially filled form content depending on timing.
+- Some CAPTCHA and bot-detection pages may not render correctly in a headless browser; the step log will contain a `detect_captcha` or `detect_blocked_page` entry.
+- Login walls are detected by URL pattern and the presence of a password field; they are logged but never bypassed.
+- Debug artifacts accumulate over time; `data/debug/form_filling/` can be cleared manually at any time.
 
 ---
 

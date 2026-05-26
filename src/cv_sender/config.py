@@ -66,6 +66,9 @@ class FormFillingConfig(BaseModel):
     debug: bool = False
     slow_mo_ms: int = 0
     headless: bool = False
+    screenshot_on_failure: bool = True
+    save_form_snapshot: bool = True
+    save_step_log: bool = True
 
 
 class Settings(BaseModel):
