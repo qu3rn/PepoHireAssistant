@@ -20,13 +20,20 @@ class BasePortalFiller(ABC):
         self.settings = settings
         self.headless = headless
 
-    def run(self, url: str) -> None:
-        """Open *url* in a browser, fill the form, then pause for manual review."""
+    def run(self, url: str, *, wait_for_review: bool = True) -> None:
+        """Open *url* in a browser, fill the form, then pause for manual review.
+
+        When *wait_for_review* is ``False`` the blocking ``input()`` prompt is
+        skipped so the method can be called safely from non-interactive
+        contexts such as the Streamlit UI.  The form is still **never**
+        auto-submitted regardless of this flag.
+        """
         with browser_session(headless=self.headless) as (page, _browser):
             navigate(page, url)
             self.fill_form(page)
             self._print_review_prompt()
-            input("Press ENTER when you are ready to close the browser…")
+            if wait_for_review:
+                input("Press ENTER when you are ready to close the browser…")
 
     @abstractmethod
     def fill_form(self, page: object) -> None:  # page: playwright Page

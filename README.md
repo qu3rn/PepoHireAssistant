@@ -98,6 +98,66 @@ cv-sender ui --host 0.0.0.0 --port 8080
 
 ---
 
+## First MVP flow
+
+This is the recommended end-to-end flow for using the UI to apply for a job manually.
+
+### 1. Start the UI
+
+```bash
+cv-sender ui
+# opens http://localhost:8501 in your browser
+```
+
+### 2. Add an offer manually
+
+1. Go to **Offers** in the sidebar.
+2. Expand **➕ Add offer manually**.
+3. Fill in at minimum: **Job title** and **Offer URL**.
+4. Click **Save offer**.
+
+The offer is saved to `data/offers.json`. Duplicate URLs are rejected automatically.
+
+### 3. Score the offer
+
+In the offer card that appears, click **Re-score**.
+
+The scorer runs deterministically (role match, tech stack, salary, location).  
+If LM Studio is running and `lm_studio.enabled: true` in settings, the LLM result is merged in automatically.  
+If LM Studio is unavailable, a warning is shown and deterministic scoring is used.
+
+The score and decision (`apply` / `maybe` / `skip`) are saved immediately.
+
+### 4. Fill the application form
+
+Click **Fill application form** on the offer card.
+
+What happens:
+- The offer URL opens in a real (non-headless) Chromium window.
+- The GenericFiller tries to click the "Apply" button, fill name / email / phone / city / LinkedIn / portfolio fields, and upload your CV from `profile.cv_path`.
+- Data-processing consent is checked if `profile.consents.data_processing` is `true`.
+- The browser window closes after filling (no waiting prompt when called from the UI).
+- An **Application** record is created in `data/applications.json` with status `ready_to_send`.
+- A `form_filled` event is appended to the record.
+- The UI shows: **"Application form has been filled. Please review it manually before submitting."**
+
+> ⚠️ **The form is never submitted automatically.**  
+> To get an interactive browser session where you can review the filled form before the window closes, use the CLI instead:
+> ```bash
+> cv-sender apply --offer-id <id>
+> ```
+> This keeps the browser open and waits for you to press Enter in the terminal.
+
+### 5. Track the application
+
+Go to **Applications** in the sidebar.
+
+- Change the status (e.g. `sent`, `reply_received`, `interview`, `offer`, `rejected`).
+- Add notes.
+- Click **Save changes** – status changes are persisted and a `status_changed` event is appended.
+
+---
+
 ## File Structure
 
 ```
@@ -111,6 +171,7 @@ cv-sender/
 │   ├── llm.py          # LM Studio integration
 │   ├── browser.py      # Playwright session management
 │   ├── form_filler.py  # Orchestrates form filling
+│   ├── services.py     # Business-logic service layer (used by UI & CLI)
 │   ├── ui.py           # Streamlit web UI
 │   └── portals/        # Portal-specific fillers
 │       ├── base.py
@@ -128,6 +189,7 @@ cv-sender/
     ├── test_config.py
     ├── test_models.py
     ├── test_scorer.py
+    ├── test_services.py
     └── test_storage.py
 ```
 
@@ -140,3 +202,5 @@ cv-sender/
 - [ ] Multi-step form navigation (LinkedIn Easy Apply wizard)
 - [ ] Email notification on application status changes
 - [x] Web UI dashboard
+- [x] Manual offer entry in UI
+- [x] End-to-end MVP flow (add → score → fill → track)

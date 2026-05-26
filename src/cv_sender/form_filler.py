@@ -37,10 +37,18 @@ def _choose_filler(url: str, profile: Profile, settings: Settings) -> BasePortal
     return filler_cls(profile=profile, settings=settings)
 
 
-def fill_application(offer: Offer, profile: Profile, settings: Settings) -> None:
+def fill_application(
+    offer: Offer,
+    profile: Profile,
+    settings: Settings,
+    *,
+    wait_for_review: bool = True,
+) -> None:
     """Open the offer URL in a browser, fill the form, and wait for manual review.
 
-    This function **never** submits the form automatically.
+    Pass ``wait_for_review=False`` to skip the blocking ``input()`` prompt
+    (useful when calling from the Streamlit UI).  The form is **never**
+    submitted automatically regardless of this flag.
     """
     filler = _choose_filler(offer.url, profile, settings)
-    filler.run(offer.url)
+    filler.run(offer.url, wait_for_review=wait_for_review)

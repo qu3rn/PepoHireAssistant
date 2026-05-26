@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,20 +27,16 @@ from cv_sender.config import (  # noqa: E402  (after set_page_config)
 )
 from cv_sender.models import (  # noqa: E402
     Application,
-    ApplicationEvent,
     ApplicationStatus,
     Decision,
     Offer,
 )
 from cv_sender.storage import (  # noqa: E402
-    add_application,
     load_applications,
     load_offers,
-    save_applications,
-    save_offers,
-    update_application,
     update_offer,
 )
+from cv_sender import services  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Navigation
@@ -83,9 +78,16 @@ def _salary_str(o: Offer | Application) -> str:
 
 
 def _rescore_offer(offer: Offer, settings: Settings) -> Offer:
-    from cv_sender.scorer import score_offer
-
-    return score_offer(offer, settings, llm_result=None)
+    """Re-score *offer* via the service layer (uses LLM when enabled)."""
+    ok, msg, updated = services.score_offer_by_id(
+        offer.id, use_llm=settings.lm_studio.enabled
+    )
+    if not ok or updated is None:
+        st.error(f"Scoring failed: {msg}")
+        return offer
+    if "⚠" in msg:
+        st.warning(msg.split("|")[-1].strip())
+    return updated
 
 
 # ---------------------------------------------------------------------------
@@ -154,11 +156,57 @@ def _page_dashboard() -> None:
 def _page_offers() -> None:
     st.title("Offers")
 
-    offers = _safe_load_offers()
     settings = load_settings()
 
+    # --- Add offer manually ---
+    with st.expander("➕ Add offer manually", expanded=False):
+        with st.form("add_offer_form", clear_on_submit=True):
+            fc1, fc2 = st.columns(2)
+            new_title = fc1.text_input("Job title *", placeholder="Senior Frontend Developer")
+            new_company = fc2.text_input("Company", placeholder="ACME Corp")
+            new_url = st.text_input("Offer URL *", placeholder="https://example.com/job/123")
+            oc1, oc2, oc3 = st.columns(3)
+            new_source = oc1.text_input("Source", value="manual")
+            new_location = oc2.text_input("Location", placeholder="Warszawa / remote")
+            new_contract = oc3.text_input("Contract", placeholder="B2B / UoP")
+            sc1, sc2, sc3 = st.columns(3)
+            new_sal_min = sc1.number_input("Salary min", min_value=0, value=0, step=500)
+            new_sal_max = sc2.number_input("Salary max", min_value=0, value=0, step=500)
+            new_currency = sc3.text_input("Currency", value="PLN")
+            new_tech_raw = st.text_input("Technologies (comma-separated)", placeholder="React, TypeScript")
+            new_description = st.text_area("Description", height=120)
+            add_submitted = st.form_submit_button("Save offer")
+
+        if add_submitted:
+            if not new_title.strip():
+                st.error("Job title is required.")
+            elif not new_url.strip():
+                st.error("Offer URL is required.")
+            else:
+                tech_list = [t.strip() for t in new_tech_raw.split(",") if t.strip()]
+                saved, offer_obj = services.add_offer_manual(
+                    url=new_url.strip(),
+                    title=new_title.strip(),
+                    company=new_company.strip(),
+                    source=new_source.strip() or "manual",
+                    location=new_location.strip(),
+                    contract=new_contract.strip(),
+                    salary_min=float(new_sal_min) if new_sal_min else None,
+                    salary_max=float(new_sal_max) if new_sal_max else None,
+                    currency=new_currency.strip() or "PLN",
+                    technologies=tech_list,
+                    description=new_description.strip(),
+                )
+                if saved:
+                    st.success(f"Offer saved (id: {offer_obj.id[:8]}). Reloading…")
+                    st.rerun()
+                else:
+                    st.warning("An offer with this URL already exists – skipped.")
+
+    offers = _safe_load_offers()
+
     if not offers:
-        st.info("No offers found. The file `data/offers.json` is empty or does not exist.")
+        st.info("No offers yet. Use the form above to add one.")
         return
 
     # --- Filters ---
@@ -207,10 +255,11 @@ def _page_offers() -> None:
             btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
 
             if btn_col1.button("Re-score", key=f"rescore_{offer.id}"):
-                updated = _rescore_offer(offer, settings)
-                update_offer(updated)
-                st.success(f"Re-scored: {updated.score} / {updated.decision}")
-                st.rerun()
+                with st.spinner("Scoring…"):
+                    updated = _rescore_offer(offer, settings)
+                if updated is not offer:
+                    st.success(f"Re-scored: {updated.score} / {updated.decision}")
+                    st.rerun()
 
             if btn_col2.button("Mark skipped", key=f"skip_{offer.id}"):
                 updated = offer.model_copy(update={"decision": Decision.SKIP})
@@ -223,48 +272,14 @@ def _page_offers() -> None:
                 st.rerun()
 
             if btn_col4.button("Fill application form", key=f"fill_{offer.id}"):
-                _trigger_form_fill(offer)
-
-
-def _trigger_form_fill(offer: Offer) -> None:
-    """Call the existing form-filler and record the application."""
-    try:
-        from cv_sender.form_filler import fill_application
-
-        profile = load_profile()
-        settings = load_settings()
-        fill_application(offer, profile, settings)
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"Browser error: {exc}")
-        return
-
-    # Record application
-    application = Application(
-        offer_id=offer.id,
-        source=offer.source,
-        url=offer.url,
-        company=offer.company,
-        title=offer.title,
-        salary_min=offer.salary_min,
-        salary_max=offer.salary_max,
-        currency=offer.currency,
-        contract=offer.contract,
-        location=offer.location,
-        status=ApplicationStatus.READY_TO_SEND,
-        score=offer.score,
-        events=[
-            ApplicationEvent(
-                event="form_filled",
-                details="Form filled via cv-sender UI; awaiting manual submission",
-            )
-        ],
-    )
-    add_application(application)
-
-    st.success(
-        "Application form has been filled. Please review it manually before submitting."
-    )
-    st.info(f"Application saved (id: {application.id[:8]})")
+                with st.spinner("Opening browser and filling form…"):
+                    ok, msg, app = services.fill_application_for_offer(offer.id)
+                if ok:
+                    st.success(msg)
+                    if app:
+                        st.info(f"Application record saved (id: {app.id[:8]})")
+                else:
+                    st.error(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -312,21 +327,16 @@ def _page_applications() -> None:
                 save_btn = st.form_submit_button("Save changes")
 
             if save_btn:
-                changed = app.model_copy(
-                    update={
-                        "status": ApplicationStatus(new_status),
-                        "notes": new_notes,
-                        "updated_at": datetime.now(UTC),
-                    }
-                )
                 if new_status != app.status.value:
-                    changed.events.append(
-                        ApplicationEvent(
-                            event="status_changed",
-                            details=f"{app.status} → {new_status}",
-                        )
+                    ok, msg = services.update_application_status(
+                        app.id, ApplicationStatus(new_status)
                     )
-                update_application(changed)
+                    if not ok:
+                        st.error(msg)
+                if new_notes != (app.notes or ""):
+                    ok, msg = services.update_application_notes(app.id, new_notes)
+                    if not ok:
+                        st.error(msg)
                 st.success("Saved.")
                 st.rerun()
 
