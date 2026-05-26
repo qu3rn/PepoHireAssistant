@@ -42,3 +42,12 @@ lm_studio:
   base_url: "http://localhost:1234/v1"
   api_key: "lm-studio"
   model: "local-model"
+
+# Form filling / browser automation settings
+form_filling:
+  # Run browser in non-headless mode (visible window) – useful for debugging
+  headless: false
+  # Add a delay between Playwright actions in milliseconds (0 = disabled)
+  slow_mo_ms: 0
+  # Debug mode: take a screenshot on failure and save to data/debug/screenshots/
+  debug: false

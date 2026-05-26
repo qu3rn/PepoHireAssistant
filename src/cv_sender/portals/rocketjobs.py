@@ -4,43 +4,43 @@ from __future__ import annotations
 
 from playwright.sync_api import Page
 
-from cv_sender.portals.generic import GenericFiller
+from cv_sender.portals.base import BasePortalFiller
 
 
-class RocketJobsFiller(GenericFiller):
+class RocketJobsFiller(BasePortalFiller):
     """Form filler for rocketjobs.pl.
 
-    Extends :class:`GenericFiller` with RocketJobs-specific selectors.
-    Falls back to generic behaviour for unknown fields.
+    Tries portal-specific input selectors first, then falls back to the
+    generic label/placeholder helpers for anything not covered.
     """
 
+    source = "rocketjobs.pl"
+
     def fill_form(self, page: Page) -> None:  # type: ignore[override]
-        self._click_apply_button(page)
-        self._fill_rocketjobs_fields(page)
-        self._try_upload_cv(page)
-        self._check_data_processing_consent(page)
+        self.click_apply_button(page)
+        self.wait_for_form_ready(page)
 
-    def _fill_rocketjobs_fields(self, page: Page) -> None:
-        """Fill fields using RocketJobs-specific selectors, then fall back to generic."""
-        profile = self.profile
+        p = self.profile
 
-        rocketjobs_fields = {
-            'input[name="firstName"]': profile.first_name,
-            'input[name="lastName"]': profile.last_name,
-            'input[name="email"]': profile.email,
-            'input[name="phone"]': profile.phone,
-            'input[name="linkedin"]': profile.linkedin,
-        }
+        # Portal-specific field selectors (these are the known RocketJobs names)
+        self._fill_by_selector(page, 'input[name="firstName"]', p.first_name, "first_name")
+        self._fill_by_selector(page, 'input[name="lastName"]', p.last_name, "last_name")
+        self._fill_by_selector(page, 'input[name="email"]', p.email, "email")
+        self._fill_by_selector(page, 'input[name="phone"]', p.phone, "phone")
+        self._fill_by_selector(page, 'input[name="linkedin"]', p.linkedin, "linkedin")
+        self._fill_by_selector(page, 'input[name="github"]', p.github, "github")
 
-        for selector, value in rocketjobs_fields.items():
-            if not value:
-                continue
-            try:
-                el = page.locator(selector).first
-                if el.count() and el.is_visible():
-                    el.fill(value)
-            except Exception:  # noqa: BLE001
-                pass
+        # Generic fallback for any fields not yet filled via specific selectors
+        self.fill_name(page)
+        self.fill_email(page)
+        self.fill_phone(page)
+        self.fill_linkedin(page)
+        self.fill_github(page)
+        self.fill_portfolio(page)
 
-        # Fall back to generic field filling for anything not covered above
-        self._fill_profile_fields(page)
+        # Salary / availability
+        self.fill_expected_salary(page, contract=p.contract if hasattr(p, "contract") else "")
+        self.fill_availability(page)
+
+        self.upload_cv(page)
+        self.handle_consents(page)

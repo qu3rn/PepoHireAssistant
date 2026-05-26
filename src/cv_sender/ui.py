@@ -29,6 +29,7 @@ from cv_sender.models import (  # noqa: E402
     Application,
     ApplicationStatus,
     Decision,
+    FillStatus,
     Offer,
 )
 from cv_sender.storage import (  # noqa: E402
@@ -352,13 +353,24 @@ def _page_offers() -> None:
 
             if btn_col4.button("Fill application form", key=f"fill_{offer.id}"):
                 with st.spinner("Opening browser and filling form…"):
-                    ok, msg, app = services.fill_application_for_offer(offer.id)
-                if ok:
-                    st.success(msg)
-                    if app:
-                        st.info(f"Application record saved (id: {app.id[:8]})")
+                    result = services.fill_application_form(offer.id)
+                if result.status == FillStatus.FILLED:
+                    st.success("Application form filled successfully.")
+                elif result.status == FillStatus.PARTIAL:
+                    st.warning("Form partially filled – some fields may need manual input.")
                 else:
-                    st.error(msg)
+                    st.error(result.error or "Form filling failed.")
+                if result.fields_filled:
+                    st.info("Filled: " + ", ".join(result.fields_filled))
+                if result.fields_missing:
+                    st.warning("Not filled: " + ", ".join(result.fields_missing))
+                for w in result.warnings:
+                    st.warning(w)
+                if result.status in (FillStatus.FILLED, FillStatus.PARTIAL):
+                    st.info(
+                        "Application form has been filled. "
+                        "Please review it manually before submitting."
+                    )
 
 
 # ---------------------------------------------------------------------------

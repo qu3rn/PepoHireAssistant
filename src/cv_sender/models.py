@@ -124,6 +124,27 @@ class BatchImportResult(BaseModel):
         )
 
 
+class FillStatus(StrEnum):
+    """Status of a Playwright form-filling attempt."""
+
+    FILLED = "filled"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class FillResult(BaseModel):
+    """Structured result returned by portal fillers."""
+
+    status: FillStatus
+    source: str = ""
+    offer_id: str = ""
+    url: str = ""
+    fields_filled: list[str] = Field(default_factory=list)
+    fields_missing: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
 class ApplicationEvent(BaseModel):
     """A timestamped event in the application lifecycle."""
 

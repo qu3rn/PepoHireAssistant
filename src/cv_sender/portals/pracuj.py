@@ -4,42 +4,48 @@ from __future__ import annotations
 
 from playwright.sync_api import Page
 
-from cv_sender.portals.generic import GenericFiller
+from cv_sender.portals.base import BasePortalFiller
 
 
-class PracujFiller(GenericFiller):
+class PracujFiller(BasePortalFiller):
     """Form filler for pracuj.pl.
 
-    Extends :class:`GenericFiller` with Pracuj-specific selectors.
-    Falls back to generic behaviour for unknown fields.
+    Pracuj.pl requires an account to apply.  If a login wall is detected,
+    the filler returns a PARTIAL result with an explanatory warning instead
+    of attempting to bypass the authentication.
     """
 
+    source = "pracuj.pl"
+
     def fill_form(self, page: Page) -> None:  # type: ignore[override]
-        self._click_apply_button(page)
-        self._fill_pracuj_fields(page)
-        self._try_upload_cv(page)
-        self._check_data_processing_consent(page)
+        self.click_apply_button(page)
+        self.wait_for_form_ready(page)
 
-    def _fill_pracuj_fields(self, page: Page) -> None:
-        """Fill fields using Pracuj-specific selectors, then fall back to generic."""
-        profile = self.profile
+        if self._check_login_required(page):
+            if self._result is not None:
+                self._result.warnings.append(
+                    "Pracuj.pl requires login to apply. "
+                    "Please log in manually, then fill and submit the form."
+                )
+            return
 
-        pracuj_fields = {
-            'input[data-test="input-name"]': profile.first_name,
-            'input[data-test="input-surname"]': profile.last_name,
-            'input[data-test="input-email"]': profile.email,
-            'input[data-test="input-phone"]': profile.phone,
-        }
+        p = self.profile
 
-        for selector, value in pracuj_fields.items():
-            if not value:
-                continue
-            try:
-                el = page.locator(selector).first
-                if el.count() and el.is_visible():
-                    el.fill(value)
-            except Exception:  # noqa: BLE001
-                pass
+        # Pracuj-specific data-test attribute selectors
+        self._fill_by_selector(page, 'input[data-test="input-name"]', p.first_name, "first_name")
+        self._fill_by_selector(page, 'input[data-test="input-surname"]', p.last_name, "last_name")
+        self._fill_by_selector(page, 'input[data-test="input-email"]', p.email, "email")
+        self._fill_by_selector(page, 'input[data-test="input-phone"]', p.phone, "phone")
 
-        # Fall back to generic field filling for anything not covered above
-        self._fill_profile_fields(page)
+        # Generic fallback
+        self.fill_name(page)
+        self.fill_email(page)
+        self.fill_phone(page)
+        self.fill_linkedin(page)
+        self.fill_github(page)
+        self.fill_portfolio(page)
+        self.fill_expected_salary(page)
+        self.fill_availability(page)
+
+        self.upload_cv(page)
+        self.handle_consents(page)
