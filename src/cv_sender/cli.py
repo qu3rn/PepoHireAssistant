@@ -321,6 +321,34 @@ def ui(
 
 
 # ---------------------------------------------------------------------------
+# bookmarklet-server
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="bookmarklet-server")
+def bookmarklet_server(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address (keep 127.0.0.1 for local-only)"),
+    port: int = typer.Option(8765, "--port", help="Port for the bookmarklet receiver"),
+) -> None:
+    """Run the local bookmarklet import server on http://127.0.0.1:8765.
+
+    Keep this server running while you browse job boards.
+    Clicking the bookmarklet in your browser will open a new tab that calls
+    the /import endpoint and shows the result.
+    """
+    import uvicorn
+
+    from cv_sender.bookmarklet_server import BOOKMARKLET_JS, app as bm_app
+
+    rprint(f"[bold green]Starting bookmarklet server[/bold green] → http://{host}:{port}")
+    rprint(f"\n[bold]Bookmarklet JavaScript:[/bold]\n[cyan]{BOOKMARKLET_JS}[/cyan]\n")
+    rprint("Copy the line above as the URL of a browser bookmark named [bold]Save to Job Assistant[/bold].")
+    rprint("Press [bold]Ctrl-C[/bold] to stop.\n")
+
+    uvicorn.run(bm_app, host=host, port=port, log_level="info")
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 

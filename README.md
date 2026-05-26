@@ -207,6 +207,62 @@ URLs beyond the limit are marked `skipped_limit`.
 
 ---
 
+## Save to Job Assistant – bookmarklet
+
+The bookmarklet lets you import a job offer from your browser with a single click, without leaving the job offer page.
+
+### Quick setup
+
+**1. Start the Streamlit UI** (if not already running):
+
+```bash
+cv-sender ui
+# → http://localhost:8501
+```
+
+**2. Start the bookmarklet server** (in a separate terminal):
+
+```bash
+cv-sender bookmarklet-server
+# → http://127.0.0.1:8765
+```
+
+**3. Create the browser bookmark:**
+
+1. Open your browser's bookmarks bar.
+2. Create a new bookmark (right-click the bookmarks bar → *Add page…*).
+3. Set the **name** to: `Save to Job Assistant`
+4. Set the **URL / address** to this JavaScript code (copy the entire line):
+
+```javascript
+javascript:(()=>{const u=encodeURIComponent(location.href);window.open('http://localhost:8765/import?url='+u,'_blank');})()
+```
+
+You can also copy the code from the **Bookmarklet** page in the Streamlit UI.
+
+**4. Use it:**
+
+1. Open any job offer page in your browser.
+2. Click the **Save to Job Assistant** bookmark.
+3. A new tab opens showing the import result.
+4. Switch to the Streamlit UI → **Offers** to review, score, and manage the imported offer.
+
+### API endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Returns `{"status": "ok"}` |
+| `GET /import?url=<encoded-url>` | Imports the offer and returns an HTML result page |
+
+### Limitations
+
+- **No page scraping** – only the URL is stored. Title is derived from the URL path. Fill in company, salary, and description manually.
+- **Local only** – the server binds to `127.0.0.1`. It is not accessible from other machines.
+- Auto-score runs the deterministic scorer (+ LLM if LM Studio is enabled in settings).
+- The server does not bypass CAPTCHAs, logins, or bot detection.
+
+---
+
 ## File Structure
 
 ```
@@ -222,6 +278,7 @@ cv-sender/
 │   ├── form_filler.py  # Orchestrates form filling
 │   ├── services.py     # Business-logic service layer (used by UI & CLI)
 │   ├── url_utils.py    # URL validation, normalization, source inference
+│   ├── bookmarklet_server.py  # FastAPI local server for the bookmarklet
 │   ├── ui.py           # Streamlit web UI
 │   └── portals/        # Portal-specific fillers
 │       ├── base.py
@@ -241,6 +298,7 @@ cv-sender/
     ├── test_scorer.py
     ├── test_services.py
     ├── test_batch_import.py
+    ├── test_bookmarklet_server.py
     └── test_storage.py
 ```
 
@@ -256,3 +314,4 @@ cv-sender/
 - [x] Manual offer entry in UI
 - [x] End-to-end MVP flow (add → score → fill → track)
 - [x] Batch URL import with normalization and duplicate detection
+- [x] Save to Job Assistant bookmarklet (local FastAPI receiver)
