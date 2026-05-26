@@ -207,6 +207,36 @@ URLs beyond the limit are marked `skipped_limit`.
 
 ---
 
+## Supported job boards
+
+| Board | Domain | Extraction strategy |
+|---|---|---|
+| **RocketJobs** | `rocketjobs.pl` | `__NEXT_DATA__` (Next.js embedded state) → JSON-LD fallback |
+| **JustJoinIT** | `justjoin.it` | `__NEXT_DATA__` → JSON-LD fallback |
+| **NoFluffJobs** | `nofluffjobs.com` | JSON-LD `JobPosting` → `__NEXT_DATA__` fallback |
+| **Pracuj.pl** | `pracuj.pl` | JSON-LD `JobPosting` → `__NEXT_DATA__` fallback |
+| **Generic** | *(any other site)* | JSON-LD `JobPosting` → `__NEXT_DATA__` generic traversal → `<title>` tag |
+
+### Extraction strategy (priority order)
+
+1. **JSON-LD `JobPosting`** – most reliable; standardised schema.org format.
+2. **`__NEXT_DATA__` embedded state** – Next.js sites embed full page data in a `<script id="__NEXT_DATA__">` tag; source-specific field mappings extract title, company, salary, skills, etc.
+3. **DOM / `<title>` tag** – last resort; extracts title only.
+
+Each extracted offer shows **Extraction details** (collapsible) in the Offers page with:
+- `extraction_source`: which strategy succeeded (`json_ld`, `embedded_state`, `dom`, `url_only`)
+- `extraction_confidence`: 0–100 % of key fields populated
+- Any warnings (e.g. low confidence, fallback used)
+
+### Important limitations
+
+- **No login / CAPTCHA bypass** – protected or login-walled pages will return no useful data. The offer is saved with URL-only mode (title derived from URL path).
+- **Site structure changes** – job boards sometimes redesign their pages. Extraction may degrade until updated.
+- **Not a crawler** – only the single offer URL is fetched; search result pages are not scraped.
+- **Bot detection** – some sites may block automated requests. The server falls back gracefully and saves the offer with URL-only data.
+
+---
+
 ## Save to Job Assistant – bookmarklet
 
 The bookmarklet lets you import a job offer from your browser with a single click, without leaving the job offer page.
@@ -280,12 +310,20 @@ cv-sender/
 │   ├── url_utils.py    # URL validation, normalization, source inference
 │   ├── bookmarklet_server.py  # FastAPI local server for the bookmarklet
 │   ├── ui.py           # Streamlit web UI
-│   └── portals/        # Portal-specific fillers
+│   └── portals/        # Portal-specific form fillers
 │       ├── base.py
 │       ├── generic.py
 │       ├── rocketjobs.py
 │       ├── pracuj.py
 │       └── linkedin.py
+└── src/cv_sender/extractors/  # Source-specific offer extractors
+    ├── __init__.py     # Registry + HTTP fetch + public extract_offer()
+    ├── base.py         # OfferDraft, BaseExtractor, normalization helpers
+    ├── generic.py      # Generic fallback (JSON-LD → __NEXT_DATA__ → title)
+    ├── rocketjobs.py   # RocketJobs extractor
+    ├── justjoin.py     # JustJoinIT extractor
+    ├── nofluffjobs.py  # NoFluffJobs extractor
+    └── pracuj.py       # Pracuj.pl extractor
 ├── config/
 │   ├── profile.example.yaml
 │   └── settings.example.yaml
@@ -299,6 +337,7 @@ cv-sender/
     ├── test_services.py
     ├── test_batch_import.py
     ├── test_bookmarklet_server.py
+    ├── test_extractors.py
     └── test_storage.py
 ```
 
@@ -315,3 +354,4 @@ cv-sender/
 - [x] End-to-end MVP flow (add → score → fill → track)
 - [x] Batch URL import with normalization and duplicate detection
 - [x] Save to Job Assistant bookmarklet (local FastAPI receiver)
+- [x] Source-specific offer extractors (RocketJobs, JustJoinIT, NoFluffJobs, Pracuj.pl)
