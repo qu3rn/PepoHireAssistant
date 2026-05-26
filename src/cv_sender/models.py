@@ -58,6 +58,68 @@ class Offer(BaseModel):
     risks: list[str] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Batch URL import
+# ---------------------------------------------------------------------------
+
+
+class ImportStatus(StrEnum):
+    """Result status for a single URL in a batch import."""
+
+    IMPORTED = "imported"
+    DUPLICATE = "duplicate"
+    FAILED = "failed"
+    INVALID = "invalid"
+    SKIPPED_LIMIT = "skipped_limit"
+
+
+class BatchImportItemResult(BaseModel):
+    """Result for one URL in a batch import."""
+
+    url: str
+    status: ImportStatus
+    offer_id: str | None = None
+    company: str = ""
+    title: str = ""
+    score: int | None = None
+    decision: Decision | None = None
+    error: str = ""
+
+
+class BatchImportResult(BaseModel):
+    """Aggregated result of a batch URL import."""
+
+    items: list[BatchImportItemResult] = Field(default_factory=list)
+
+    @property
+    def imported_count(self) -> int:
+        return sum(1 for i in self.items if i.status == ImportStatus.IMPORTED)
+
+    @property
+    def duplicate_count(self) -> int:
+        return sum(1 for i in self.items if i.status == ImportStatus.DUPLICATE)
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for i in self.items if i.status == ImportStatus.FAILED)
+
+    @property
+    def invalid_count(self) -> int:
+        return sum(1 for i in self.items if i.status == ImportStatus.INVALID)
+
+    @property
+    def skipped_limit_count(self) -> int:
+        return sum(1 for i in self.items if i.status == ImportStatus.SKIPPED_LIMIT)
+
+    @property
+    def scored_count(self) -> int:
+        return sum(
+            1
+            for i in self.items
+            if i.status == ImportStatus.IMPORTED and i.score is not None
+        )
+
+
 class ApplicationEvent(BaseModel):
     """A timestamped event in the application lifecycle."""
 

@@ -18,6 +18,7 @@ It evaluates offers, stores your application history, opens job pages in a real 
 - Portal-specific fillers for RocketJobs, Pracuj.pl, LinkedIn (+ generic fallback)
 - JSON-file storage for offers and application history
 - Rich CLI with `typer`
+- **Batch URL import** – paste multiple job offer URLs and import + score them in one click
 - **Local Streamlit UI** – dashboard, offer management, application history, profile and settings editor
 
 ---
@@ -158,6 +159,54 @@ Go to **Applications** in the sidebar.
 
 ---
 
+## Batch URL import
+
+### How it works
+
+1. Go to **Offers** in the sidebar.
+2. Expand **📋 Batch import URLs**.
+3. Paste job offer URLs – one per line – into the text area.
+4. Optionally set a **Source override** (e.g. `linkedin`), otherwise the source is inferred from the URL hostname.
+5. Leave **Auto-score after import** checked to score each new offer immediately.
+6. Adjust **Max URLs per batch** (default: 20, hard limit: 50).
+7. Click **Import URLs**.
+
+After import, a summary table shows the result for every URL:
+
+| Column | Meaning |
+|---|---|
+| Status | `imported`, `duplicate`, `failed`, `invalid`, `skipped_limit` |
+| ID | First 8 characters of the offer UUID |
+| Title | Derived from the URL path |
+| Score | Deterministic score (if auto-score was enabled) |
+| Decision | `apply` / `maybe` / `skip` |
+| Error | Reason for failure / warning |
+
+### Limits
+
+| Setting | Value |
+|---|---|
+| Default max URLs | 20 |
+| Hard max URLs | **50** (enforced server-side) |
+
+URLs beyond the limit are marked `skipped_limit`.
+
+### Duplicate handling
+
+- **Within input**: if you paste the same URL twice, only the first occurrence is imported.
+- **Against storage**: if an offer with the same normalized URL already exists, the import is skipped.
+- Normalization strips trailing slashes, URL fragments, and well-known tracking parameters (`utm_source`, `utm_medium`, `utm_campaign`, `fbclid`, `gclid`, etc.). Job-board-specific query parameters (e.g. `id=12345`) are preserved.
+
+### Important limitations
+
+> **This is not a crawler.**  
+> No HTTP requests are made to the job offer pages. Each URL is stored as an offer with a title derived from the URL path only. You must fill in company name, salary, and other details manually (or let the scorer infer what it can from the URL and title).
+
+> **Some sites may block automated page fetching.**  
+> If you later add scraping/extraction, be aware that many job boards use bot detection, CAPTCHAs, and login walls. Never bypass these protections.
+
+---
+
 ## File Structure
 
 ```
@@ -172,6 +221,7 @@ cv-sender/
 │   ├── browser.py      # Playwright session management
 │   ├── form_filler.py  # Orchestrates form filling
 │   ├── services.py     # Business-logic service layer (used by UI & CLI)
+│   ├── url_utils.py    # URL validation, normalization, source inference
 │   ├── ui.py           # Streamlit web UI
 │   └── portals/        # Portal-specific fillers
 │       ├── base.py
@@ -190,6 +240,7 @@ cv-sender/
     ├── test_models.py
     ├── test_scorer.py
     ├── test_services.py
+    ├── test_batch_import.py
     └── test_storage.py
 ```
 
@@ -204,3 +255,4 @@ cv-sender/
 - [x] Web UI dashboard
 - [x] Manual offer entry in UI
 - [x] End-to-end MVP flow (add → score → fill → track)
+- [x] Batch URL import with normalization and duplicate detection

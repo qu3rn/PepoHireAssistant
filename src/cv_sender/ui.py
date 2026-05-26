@@ -203,10 +203,79 @@ def _page_offers() -> None:
                 else:
                     st.warning("An offer with this URL already exists – skipped.")
 
+    # --- Batch import URLs ---
+    with st.expander("📋 Batch import URLs", expanded=False):
+        with st.form("batch_import_form", clear_on_submit=True):
+            raw_urls = st.text_area(
+                "Job offer URLs (one per line)",
+                height=160,
+                placeholder="https://rocketjobs.pl/oferty/...\nhttps://pracuj.pl/praca/...",
+            )
+            bi_c1, bi_c2, bi_c3 = st.columns(3)
+            batch_source = bi_c1.text_input(
+                "Source override (optional)",
+                placeholder="leave blank to auto-detect",
+            )
+            batch_auto_score = bi_c2.checkbox("Auto-score after import", value=True)
+            batch_max = bi_c3.number_input(
+                "Max URLs per batch",
+                min_value=1,
+                max_value=50,
+                value=20,
+                step=1,
+            )
+            batch_submitted = st.form_submit_button("Import URLs")
+
+        if batch_submitted:
+            from cv_sender.url_utils import parse_url_lines  # noqa: PLC0415
+
+            url_list = parse_url_lines(raw_urls or "")
+            if not url_list:
+                st.warning("No URLs found. Paste at least one URL.")
+            else:
+                with st.status(f"Importing {len(url_list)} URL(s)…", expanded=True) as status_widget:
+                    batch_result = services.import_offers_from_urls(
+                        urls=url_list,
+                        source_override=batch_source.strip() or None,
+                        auto_score=batch_auto_score,
+                        max_urls=int(batch_max),
+                    )
+                    status_widget.update(label="Import complete.", state="complete")
+
+                # Summary metrics
+                m1, m2, m3, m4, m5, m6 = st.columns(6)
+                m1.metric("Imported", batch_result.imported_count)
+                m2.metric("Duplicates", batch_result.duplicate_count)
+                m3.metric("Failed", batch_result.failed_count)
+                m4.metric("Invalid", batch_result.invalid_count)
+                m5.metric("Skipped (limit)", batch_result.skipped_limit_count)
+                m6.metric("Scored", batch_result.scored_count)
+
+                # Per-URL table
+                import pandas as pd  # noqa: PLC0415
+
+                rows = [
+                    {
+                        "URL": item.url[:80] + ("…" if len(item.url) > 80 else ""),
+                        "Status": item.status,
+                        "ID": (item.offer_id or "")[:8],
+                        "Title": item.title[:40] + ("…" if len(item.title) > 40 else "") if item.title else "",
+                        "Score": item.score if item.score is not None else "",
+                        "Decision": str(item.decision or ""),
+                        "Error": item.error[:60] + ("…" if len(item.error) > 60 else "") if item.error else "",
+                    }
+                    for item in batch_result.items
+                ]
+                if rows:
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                if batch_result.imported_count:
+                    st.rerun()
+
     offers = _safe_load_offers()
 
     if not offers:
-        st.info("No offers yet. Use the form above to add one.")
+        st.info("No offers yet. Use the forms above to add one.")
         return
 
     # --- Filters ---
