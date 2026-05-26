@@ -56,6 +56,10 @@ class Offer(BaseModel):
     decision: Decision | None = None
     decision_reasons: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    # Extraction metadata (populated when imported via URL)
+    extraction_source: str = ""
+    extraction_confidence: float = 0.0
+    extraction_warnings: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

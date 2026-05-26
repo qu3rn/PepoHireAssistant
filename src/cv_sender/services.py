@@ -109,10 +109,13 @@ def import_offer_from_url(
 ) -> BatchImportItemResult:
     """Import a single job offer from a URL.
 
-    No HTTP requests are made – the offer is stored with the provided URL and
-    a title/source derived from the URL.  Returns a
-    :class:`BatchImportItemResult` describing the outcome.
+    Fetches the page HTML and runs the best source-specific extractor to
+    populate offer fields (title, company, salary, etc.).  Falls back to
+    URL-derived data when fetching fails or returns no useful content.
+    Returns a :class:`BatchImportItemResult` describing the outcome.
     """
+    from urllib.parse import urlparse  # noqa: PLC0415
+
     norm_url = normalize_url(url)
 
     if not is_valid_url(norm_url):
@@ -124,14 +127,39 @@ def import_offer_from_url(
 
     source = source_override or infer_source(norm_url)
 
-    # Derive a minimal title from the URL path so the offer is identifiable.
-    from urllib.parse import urlparse  # noqa: PLC0415
+    # Extract offer fields from the page (HTML fetch + source-specific parsing).
+    # Returns an empty OfferDraft when the page is unreachable or unrecognised.
+    from cv_sender.extractors import extract_offer as _extract_offer  # noqa: PLC0415
 
-    path_parts = [p for p in urlparse(norm_url).path.split("/") if p]
-    raw_title = path_parts[-1].replace("-", " ").replace("_", " ") if path_parts else norm_url
-    title = raw_title[:120]  # cap to avoid absurdly long titles
+    try:
+        draft = _extract_offer(norm_url)
+    except Exception:  # noqa: BLE001
+        draft = None  # type: ignore[assignment]
 
-    offer = Offer(url=norm_url, title=title, source=source)
+    # Determine title: extracted value preferred; fall back to URL path segment.
+    if draft and draft.title:
+        title = draft.title[:120]
+    else:
+        path_parts = [p for p in urlparse(norm_url).path.split("/") if p]
+        raw_title = path_parts[-1].replace("-", " ").replace("_", " ") if path_parts else norm_url
+        title = raw_title[:120]
+
+    offer = Offer(
+        url=norm_url,
+        title=title,
+        source=source,
+        company=draft.company if draft else "",
+        location=draft.location if draft else "",
+        contract=draft.contract if draft else "",
+        salary_min=draft.salary_min if draft else None,
+        salary_max=draft.salary_max if draft else None,
+        currency=draft.currency if draft else "PLN",
+        technologies=draft.technologies if draft else [],
+        description=draft.description if draft else "",
+        extraction_source=draft.extraction_source if draft else "",
+        extraction_confidence=draft.extraction_confidence if draft else 0.0,
+        extraction_warnings=draft.extraction_warnings if draft else [],
+    )
     saved = add_offer(offer)
 
     if not saved:

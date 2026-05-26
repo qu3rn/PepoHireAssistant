@@ -321,6 +321,16 @@ def _page_offers() -> None:
             if offer.risks:
                 st.markdown("**Risks:** " + " · ".join(offer.risks))
 
+            if offer.extraction_source:
+                with st.expander("Extraction details", expanded=False):
+                    ec1, ec2 = st.columns(2)
+                    ec1.markdown(f"**Source:** `{offer.extraction_source}`")
+                    confidence_pct = f"{offer.extraction_confidence:.0%}" if offer.extraction_confidence else "—"
+                    ec2.markdown(f"**Confidence:** {confidence_pct}")
+                    if offer.extraction_warnings:
+                        for w in offer.extraction_warnings:
+                            st.warning(w)
+
             btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
 
             if btn_col1.button("Re-score", key=f"rescore_{offer.id}"):
