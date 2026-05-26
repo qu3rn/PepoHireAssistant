@@ -143,6 +143,11 @@ class FillResult(BaseModel):
     fields_missing: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
+    # Debug artifact links (populated when form_filling.debug is enabled)
+    debug_run_id: str = ""
+    screenshot_path: str = ""
+    form_snapshot_path: str = ""
+    step_log_path: str = ""
 
 
 class ApplicationEvent(BaseModel):

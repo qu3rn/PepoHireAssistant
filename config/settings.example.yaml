@@ -49,5 +49,11 @@ form_filling:
   headless: false
   # Add a delay between Playwright actions in milliseconds (0 = disabled)
   slow_mo_ms: 0
-  # Debug mode: take a screenshot on failure and save to data/debug/screenshots/
+  # Master debug switch: enables screenshot on failure + form snapshot + step log
   debug: false
+  # Save a screenshot when filling is partial or failed (effective when debug: true)
+  screenshot_on_failure: true
+  # Save a sanitized snapshot of detected form fields (no input values stored)
+  save_form_snapshot: true
+  # Save a step-by-step action log (no sensitive field values stored)
+  save_step_log: true

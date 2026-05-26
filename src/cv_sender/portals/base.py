@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
-from pathlib import Path
+from datetime import UTC, datetime
 
 from playwright.sync_api import Locator, Page
 
 from cv_sender.browser import browser_session, navigate
 from cv_sender.config import Profile, Settings
+from cv_sender.form_debug import (
+    FormFillDebugRecord,
+    StepLogger,
+    detect_blocked_page,
+    detect_captcha,
+    detect_login_wall,
+    save_debug_run,
+    snapshot_form,
+)
 from cv_sender.models import FillResult, FillStatus, Offer
 
 # ---------------------------------------------------------------------------
@@ -65,6 +73,7 @@ class BasePortalFiller(ABC):
         self.settings = settings
         self.headless = headless
         self._result: FillResult | None = None
+        self._step_log: StepLogger = StepLogger()
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -78,8 +87,9 @@ class BasePortalFiller(ABC):
         The form is **never** submitted automatically regardless of *auto_submit*.
         This flag exists only for future supervised flows and must remain False.
         """
-        headless = self.settings.form_filling.headless or self.headless
-        slow_mo = self.settings.form_filling.slow_mo_ms
+        cfg = self.settings.form_filling
+        headless = cfg.headless or self.headless
+        slow_mo = cfg.slow_mo_ms
 
         result = FillResult(
             status=FillStatus.FAILED,
@@ -88,21 +98,67 @@ class BasePortalFiller(ABC):
             url=offer.url,
         )
         self._result = result
+        self._step_log = StepLogger()
         _page: Page | None = None
+
+        debug_record = FormFillDebugRecord(
+            offer_id=offer.id,
+            source=self.__class__.source,
+            url=offer.url,
+            filler_name=self.__class__.__name__,
+        )
 
         try:
             with browser_session(headless=headless, slow_mo=slow_mo) as (page, _):
                 _page = page
+                self._step_log.log("open_url", target=offer.url)
                 navigate(page, offer.url)
                 self.fill_form(page)
+                self._step_log.log("stop_before_submit", message="Auto-submit disabled; form left for manual review.")
                 self._finalize_status()
         except Exception as exc:  # noqa: BLE001
             result.status = FillStatus.FAILED
             result.error = str(exc)
-            if self.settings.form_filling.debug and _page is not None:
-                self._save_debug_screenshot(_page, offer.id)
+            self._step_log.log("error", status="failed", message=str(exc))
         finally:
             self._result = None
+
+        # Persist debug artifacts when debug mode is enabled or fill was not fully successful
+        should_debug = cfg.debug or result.status != FillStatus.FILLED
+        screenshot_bytes: bytes | None = None
+        form_snap: list | None = None
+
+        if should_debug and _page is not None:
+            if cfg.screenshot_on_failure or cfg.debug:
+                try:
+                    screenshot_bytes = _page.screenshot()
+                except Exception:  # noqa: BLE001
+                    pass
+            if cfg.save_form_snapshot or cfg.debug:
+                try:
+                    form_snap = snapshot_form(_page)
+                    debug_record.fields_detected_summary = {
+                        "inputs": sum(1 for f in form_snap if f.get("tag") == "input"),
+                        "textareas": sum(1 for f in form_snap if f.get("tag") == "textarea"),
+                        "selects": sum(1 for f in form_snap if f.get("tag") == "select"),
+                    }
+                except Exception:  # noqa: BLE001
+                    pass
+
+        debug_record.status = result.status
+        debug_record.warnings = list(result.warnings)
+        debug_record.error = result.error or ""
+        debug_record.fields_filled = list(result.fields_filled)
+        debug_record.fields_missing = list(result.fields_missing)
+        debug_record.finished_at = datetime.now(UTC)
+
+        step_log_to_save = self._step_log if (cfg.save_step_log or cfg.debug) else StepLogger()
+        saved = save_debug_run(debug_record, step_log_to_save, form_snap, screenshot_bytes)
+
+        result.debug_run_id = saved.run_id
+        result.screenshot_path = saved.screenshot_path
+        result.form_snapshot_path = saved.form_snapshot_path
+        result.step_log_path = saved.step_log_path
 
         return result
 
@@ -128,8 +184,9 @@ class BasePortalFiller(ABC):
         """Wait until the page network is idle."""
         try:
             page.wait_for_load_state("networkidle", timeout=timeout)
+            self._step_log.log("wait_for_form")
         except Exception:  # noqa: BLE001
-            pass
+            self._step_log.log("wait_for_form", status="skipped", message="timeout or network error")
 
     def click_apply_button(self, page: Page) -> bool:
         """Click the primary Apply button or link.  Returns True when found."""
@@ -140,9 +197,11 @@ class BasePortalFiller(ABC):
                     if el.count() and el.first.is_visible():
                         el.first.click()
                         self.wait_for_form_ready(page)
+                        self._step_log.log("click_apply_button", target=text)
                         return True
                 except Exception:  # noqa: BLE001
                     pass
+        self._step_log.log("click_apply_button", status="skipped", message="Apply button not found")
         return False
 
     def fill_text_field_by_label_or_placeholder(
@@ -164,6 +223,7 @@ class BasePortalFiller(ABC):
                 if loc.count() and loc.first.is_visible():
                     loc.first.fill(value)
                     self._track_field(field_name, filled=True)
+                    self._step_log.log(f"fill_{field_name}", target=f"label:{label}")
                     return True
             except Exception:  # noqa: BLE001
                 pass
@@ -174,6 +234,7 @@ class BasePortalFiller(ABC):
                 if loc.count() and loc.first.is_visible():
                     loc.first.fill(value)
                     self._track_field(field_name, filled=True)
+                    self._step_log.log(f"fill_{field_name}", target=f"placeholder:{label}")
                     return True
             except Exception:  # noqa: BLE001
                 pass
@@ -192,11 +253,13 @@ class BasePortalFiller(ABC):
                     if loc.count() and loc.is_visible():
                         loc.fill(value)
                         self._track_field(field_name, filled=True)
+                        self._step_log.log(f"fill_{field_name}", target=sel)
                         return True
                 except Exception:  # noqa: BLE001
                     pass
 
         self._track_field(field_name, filled=False)
+        self._step_log.log(f"fill_{field_name}", status="failed", message="field not found")
         return False
 
     def fill_name(self, page: Page) -> None:
@@ -297,16 +360,19 @@ class BasePortalFiller(ABC):
         """Upload the CV via a file input.  Returns True on success."""
         cv_path = self.profile.cv_path
         if not cv_path:
+            self._step_log.log("upload_cv", status="skipped", message="cv_path not set")
             return False
         try:
             file_input = page.locator('input[type="file"]').first
             if file_input.count():
                 file_input.set_input_files(cv_path)
                 self._track_field("cv_upload", filled=True)
+                self._step_log.log("upload_cv")
                 return True
         except Exception:  # noqa: BLE001
             pass
         self._track_field("cv_upload", filled=False)
+        self._step_log.log("upload_cv", status="failed", message="file input not found or upload failed")
         return False
 
     def handle_consents(self, page: Page) -> None:
@@ -320,6 +386,7 @@ class BasePortalFiller(ABC):
           ``profile.consents.future_recruitment`` is True.
         """
         if not self.profile.consents.data_processing:
+            self._step_log.log("check_required_consents", status="skipped", message="data_processing consent not granted")
             return
 
         try:
@@ -328,6 +395,7 @@ class BasePortalFiller(ABC):
         except Exception:  # noqa: BLE001
             return
 
+        checked = 0
         for i in range(count):
             try:
                 cb = checkboxes.nth(i)
@@ -347,8 +415,10 @@ class BasePortalFiller(ABC):
                     continue
                 if is_required:
                     cb.check()
+                    checked += 1
             except Exception:  # noqa: BLE001
                 continue
+        self._step_log.log("check_required_consents", message=f"{checked} checked")
 
     def collect_form_debug_info(self, page: Page) -> dict:
         """Collect non-sensitive form structure info for debugging."""
@@ -401,6 +471,7 @@ class BasePortalFiller(ABC):
             if el.count() and el.is_visible():
                 el.fill(value)
                 self._track_field(field_name, filled=True)
+                self._step_log.log(f"fill_{field_name}", target=selector)
                 return True
         except Exception:  # noqa: BLE001
             pass
@@ -434,18 +505,30 @@ class BasePortalFiller(ABC):
 
     def _check_login_required(self, page: Page) -> bool:
         """Return True if the current page appears to require a login."""
-        try:
-            url = page.url.lower()
-            if any(
-                k in url
-                for k in ("/login", "/signin", "/sign-in", "/logowanie", "/zaloguj", "/auth/")
-            ):
-                return True
-            if page.locator('input[type="password"]').first.is_visible():
-                return True
-        except Exception:  # noqa: BLE001
-            pass
-        return False
+        detected = detect_login_wall(page)
+        if detected:
+            self._step_log.log("detect_login_wall", status="failed", message="Login wall detected")
+        else:
+            self._step_log.log("detect_login_wall", status="skipped", message="No login wall")
+        return detected
+
+    def _check_captcha(self, page: Page) -> bool:
+        """Return True if the current page contains a CAPTCHA."""
+        detected = detect_captcha(page)
+        if detected:
+            self._step_log.log("detect_captcha", status="failed", message="CAPTCHA detected")
+        else:
+            self._step_log.log("detect_captcha", status="skipped", message="No CAPTCHA")
+        return detected
+
+    def _check_blocked_page(self, page: Page) -> bool:
+        """Return True if the page appears to be a bot-detection / blocked page."""
+        detected = detect_blocked_page(page)
+        if detected:
+            self._step_log.log("detect_blocked_page", status="failed", message="Blocked/bot-detection page")
+        else:
+            self._step_log.log("detect_blocked_page", status="skipped", message="Page not blocked")
+        return detected
 
     def _get_checkbox_label_text(self, page: Page, checkbox: Locator) -> str:
         """Return the label text for *checkbox* via multiple discovery strategies."""
@@ -486,17 +569,8 @@ class BasePortalFiller(ABC):
         return ""
 
     def _save_debug_screenshot(self, page: Page, offer_id: str) -> None:
-        """Save a screenshot to ``data/debug/screenshots/`` for debug mode."""
-        try:
-            debug_dir = Path("data/debug/screenshots")
-            debug_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = debug_dir / f"{offer_id[:8]}_{ts}.png"
-            page.screenshot(path=str(filename))
-            if self._result is not None:
-                self._result.warnings.append(f"Debug screenshot saved: {filename}")
-        except Exception:  # noqa: BLE001
-            pass
+        """Legacy helper – no-op; screenshots are now handled by fill() directly."""
+        pass  # noqa: PIE790
 
     def _finalize_status(self) -> None:
         """Determine final FillStatus from fields_filled / fields_missing."""
