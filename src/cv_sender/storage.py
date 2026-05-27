@@ -6,13 +6,15 @@ import json
 import os
 from pathlib import Path
 
-from cv_sender.models import Application, ApplyQueueItem, EmailMatch, Interview, Offer
+from cv_sender.models import Application, ApplyQueueItem, Campaign, CampaignActivity, EmailMatch, Interview, Offer
 
 _DEFAULT_OFFERS = Path(os.getenv("OFFERS_PATH", "data/offers.json"))
 _DEFAULT_APPLICATIONS = Path(os.getenv("APPLICATIONS_PATH", "data/applications.json"))
 _DEFAULT_EMAIL_MATCHES = Path(os.getenv("EMAIL_MATCHES_PATH", "data/email_matches.json"))
 _DEFAULT_INTERVIEWS = Path(os.getenv("INTERVIEWS_PATH", "data/interviews.json"))
 _DEFAULT_APPLY_QUEUE = Path(os.getenv("APPLY_QUEUE_PATH", "data/apply_queue.json"))
+_DEFAULT_CAMPAIGNS = Path(os.getenv("CAMPAIGNS_PATH", "data/campaigns.json"))
+_DEFAULT_CAMPAIGN_ACTIVITIES = Path(os.getenv("CAMPAIGN_ACTIVITIES_PATH", "data/campaign_activities.json"))
 
 
 # ---------------------------------------------------------------------------
@@ -251,3 +253,84 @@ def update_queue_item(item: ApplyQueueItem, path: Path | None = None) -> None:
     queue = load_apply_queue(path)
     updated = [item if q.id == item.id else q for q in queue]
     save_apply_queue(updated, path)
+
+
+# ---------------------------------------------------------------------------
+# Campaigns
+# ---------------------------------------------------------------------------
+
+
+def load_campaigns(path: Path | None = None) -> list[Campaign]:
+    """Load all campaigns from storage."""
+    raw = _read_json(path or _DEFAULT_CAMPAIGNS)
+    return [Campaign.model_validate(item) for item in raw]
+
+
+def save_campaigns(campaigns: list[Campaign], path: Path | None = None) -> None:
+    """Persist all campaigns to storage."""
+    _write_json(
+        path or _DEFAULT_CAMPAIGNS,
+        [c.model_dump(mode="json") for c in campaigns],
+    )
+
+
+def add_campaign(campaign: Campaign, path: Path | None = None) -> None:
+    """Append *campaign* to storage."""
+    campaigns = load_campaigns(path)
+    campaigns.append(campaign)
+    save_campaigns(campaigns, path)
+
+
+def get_campaign_by_id(campaign_id: str, path: Path | None = None) -> Campaign | None:
+    """Return the campaign with *campaign_id*, or ``None``."""
+    return next((c for c in load_campaigns(path) if c.id == campaign_id), None)
+
+
+def update_campaign(campaign: Campaign, path: Path | None = None) -> None:
+    """Replace the stored campaign that has the same id as *campaign*."""
+    campaigns = load_campaigns(path)
+    updated = [campaign if c.id == campaign.id else c for c in campaigns]
+    save_campaigns(updated, path)
+
+
+# ---------------------------------------------------------------------------
+# Campaign activities
+# ---------------------------------------------------------------------------
+
+
+def load_campaign_activities(path: Path | None = None) -> list[CampaignActivity]:
+    """Load all campaign activities from storage."""
+    raw = _read_json(path or _DEFAULT_CAMPAIGN_ACTIVITIES)
+    return [CampaignActivity.model_validate(item) for item in raw]
+
+
+def save_campaign_activities(
+    activities: list[CampaignActivity],
+    path: Path | None = None,
+) -> None:
+    """Persist all campaign activities to storage."""
+    _write_json(
+        path or _DEFAULT_CAMPAIGN_ACTIVITIES,
+        [a.model_dump(mode="json") for a in activities],
+    )
+
+
+def add_campaign_activity(
+    activity: CampaignActivity,
+    path: Path | None = None,
+) -> None:
+    """Append *activity* to storage."""
+    activities = load_campaign_activities(path)
+    activities.append(activity)
+    save_campaign_activities(activities, path)
+
+
+def get_campaign_activities(
+    campaign_id: str,
+    path: Path | None = None,
+) -> list[CampaignActivity]:
+    """Return all activities for *campaign_id*, sorted by timestamp ascending."""
+    all_activities = load_campaign_activities(path)
+    filtered = [a for a in all_activities if a.campaign_id == campaign_id]
+    return sorted(filtered, key=lambda a: a.timestamp)
+
