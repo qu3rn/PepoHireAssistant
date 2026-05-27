@@ -396,6 +396,7 @@ def collect_jobs(
 
     table = Table(title="Collection results")
     table.add_column("Source")
+    table.add_column("Raw", justify="right")
     table.add_column("Collected", justify="right")
     table.add_column("Imported", justify="right")
     table.add_column("Duplicate", justify="right")
@@ -405,6 +406,7 @@ def collect_jobs(
     for r in results:
         table.add_row(
             r.source,
+            str(r.raw_found_count),
             str(r.collected_count),
             str(r.imported_count),
             str(r.duplicate_count),
@@ -415,6 +417,97 @@ def collect_jobs(
             rprint(f"  [red]Error ({r.source}):[/red] {err}")
 
     rprint(table)
+
+
+# ---------------------------------------------------------------------------
+# debug-collectors
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="debug-collectors")
+def debug_collectors(
+    sources: list[str] = typer.Option(
+        [],
+        "--source",
+        "-s",
+        help="Sources to test. Repeatable. Defaults to all registered sources.",
+    ),
+) -> None:
+    """Smoke-test each collector with broad React/Frontend criteria.
+
+    Prints per-source diagnostics: HTTP status, raw candidate count, filter results,
+    and sample offer previews.  Does not import or store anything.
+    """
+    import time  # noqa: PLC0415
+
+    from cv_sender.collectors.base import JobSearchCriteria, passes_criteria_filter  # noqa: PLC0415
+    from cv_sender.job_search import _get_collector  # noqa: PLC0415
+
+    # Deliberately broad criteria so filter issues are visible.
+    broad_criteria = JobSearchCriteria(
+        keywords=["React", "Frontend"],
+        technologies=["React", "TypeScript"],
+        locations=[],
+        seniority=[],
+        contract_types=[],
+        min_salary_b2b=0,
+        require_salary=False,
+        max_offers_per_source=5,
+        max_total_offers=50,
+        exclude_keywords=[],
+        request_delay_seconds=0.5,
+    )
+
+    all_sources = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj", "linkedin"]
+    active = list(sources) if sources else all_sources
+
+    rprint("\n[bold]cv-sender debug-collectors[/bold]")
+    rprint(f"Broad criteria: keywords={broad_criteria.keywords} technologies={broad_criteria.technologies}")
+    rprint(f"Sources: {active}\n")
+
+    for name in active:
+        rprint(f"[bold cyan]── {name} ──[/bold cyan]")
+        collector = _get_collector(name)
+        if collector is None:
+            rprint(f"  [red]✗ No collector registered for '{name}'[/red]")
+            continue
+
+        rprint(f"  Collector class : {type(collector).__name__}")
+
+        t0 = time.monotonic()
+        try:
+            raw = collector.search(broad_criteria)
+            elapsed = round(time.monotonic() - t0, 2)
+        except Exception as exc:  # noqa: BLE001
+            elapsed = round(time.monotonic() - t0, 2)
+            rprint(f"  [red]✗ search() raised exception after {elapsed}s:[/red] {exc}")
+            continue
+
+        raw_count = len(raw)
+        passed = [o for o in raw if not passes_criteria_filter(o, broad_criteria)]
+        rejected = raw_count - len(passed)
+
+        status_icon = "[green]✓[/green]" if raw_count > 0 else "[yellow]⚠[/yellow]"
+        rprint(f"  {status_icon} Duration         : {elapsed}s")
+        rprint(f"  {status_icon} Raw candidates   : {raw_count}")
+        rprint(f"  {'[green]✓[/green]' if passed else '[yellow]⚠[/yellow]'} After filter     : {len(passed)}  (rejected by filter: {rejected})")
+
+        if raw_count == 0:
+            rprint("  [yellow]⚠ 0 raw results — check the API endpoint, network, or source availability.[/yellow]")
+        elif len(passed) == 0:
+            rprint("  [yellow]⚠ raw > 0 but all rejected — filters may be too strict for this source.[/yellow]")
+
+        # Show first 3 raw sample previews.
+        for i, offer in enumerate(raw[:3]):
+            skip = passes_criteria_filter(offer, broad_criteria)
+            flag = "[green]pass[/green]" if not skip else f"[yellow]skip: {skip[:60]}[/yellow]"
+            title = (offer.title or "(no title)")[:60]
+            company = (offer.company or "")[:30]
+            rprint(f"    [{i+1}] {title} @ {company} — {flag}")
+
+        rprint("")
+
+    rprint("[dim]Note: debug-collectors does not save or import any offers.[/dim]")
 
 
 # ---------------------------------------------------------------------------
