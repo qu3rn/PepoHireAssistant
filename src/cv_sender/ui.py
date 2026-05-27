@@ -52,7 +52,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Rapid Apply", "Bookmarklet", "Debug"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Rapid Apply", "Campaigns", "Bookmarklet", "Debug"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -1748,6 +1748,11 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
         st.session_state.ra_source_filter = ""
     if "ra_exclude_failed" not in st.session_state:
         st.session_state.ra_exclude_failed = False
+    # Campaign integration: optional campaign_id set from Campaigns page
+    if "ra_campaign_id" not in st.session_state:
+        st.session_state.ra_campaign_id = ""
+
+    campaign_id: str = st.session_state.ra_campaign_id or ""
 
     def _filter_kwargs() -> dict:
         return dict(
@@ -1757,10 +1762,42 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
         )
 
     # ------------------------------------------------------------------ #
+    # Campaign progress banner (when running inside a campaign)
+    # ------------------------------------------------------------------ #
+    if campaign_id:
+        from cv_sender.campaigns import get_campaign, get_campaign_progress  # noqa: PLC0415
+
+        campaign_obj = get_campaign(campaign_id)
+        c_progress = get_campaign_progress(campaign_id)
+        if campaign_obj and c_progress:
+            with st.container(border=True):
+                st.markdown(f"**Campaign: {campaign_obj.name}**")
+                camp_cols = st.columns(5)
+                camp_cols[0].metric("Target", c_progress.target)
+                camp_cols[1].metric("Sent", c_progress.sent)
+                camp_cols[2].metric("Remaining", c_progress.remaining)
+                camp_cols[3].metric("Queued", c_progress.queued_available)
+                camp_cols[4].metric("Progress", f"{c_progress.progress_pct:.0f}%")
+                st.progress(min(1.0, c_progress.progress_pct / 100))
+                if c_progress.remaining == 0:
+                    st.success("Target reached! Great work.")
+                elif c_progress.queue_shortage:
+                    st.warning(c_progress.queue_shortage_message)
+            if st.button("Exit campaign mode"):
+                st.session_state.ra_campaign_id = ""
+                st.rerun()
+        st.divider()
+
+    # ------------------------------------------------------------------ #
     # 1. Session summary bar
     # ------------------------------------------------------------------ #
     stats = get_session_stats()
-    active_items = get_active_queue_items(**_filter_kwargs())
+    all_active_items = get_active_queue_items(**_filter_kwargs())
+    # When running inside a campaign, restrict to campaign items only
+    if campaign_id:
+        active_items = [i for i in all_active_items if i.campaign_id == campaign_id]
+    else:
+        active_items = all_active_items
 
     summary_cols = st.columns(6)
     summary_cols[0].metric("Queued", stats.queued)
@@ -1984,6 +2021,14 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
         if st.button("2️⃣ Mark as sent", use_container_width=True):
             ms = do_mark_sent(current_item.id, **_filter_kwargs())
             st.session_state.ra_processed += 1
+            if campaign_id:
+                from cv_sender.campaigns import mark_campaign_sent  # noqa: PLC0415
+                mark_campaign_sent(
+                    campaign_id,
+                    application_id=ms.next_item.id if ms.next_item else "",
+                    offer_id=current_item.offer_id,
+                    queue_item_id=current_item.id,
+                )
             if ms.next_item:
                 st.session_state.ra_item_id = ms.next_item.id
             else:
@@ -2024,6 +2069,16 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 reason = "" if reason_choice == "(none)" else reason_choice
                 sk = do_skip(current_item.id, reason=reason, **_filter_kwargs())
                 st.session_state.ra_processed += 1
+                if campaign_id:
+                    from cv_sender.campaigns import record_campaign_activity  # noqa: PLC0415
+                    from cv_sender.models import CampaignActivityType  # noqa: PLC0415
+                    record_campaign_activity(
+                        campaign_id,
+                        CampaignActivityType.SKIPPED,
+                        offer_id=current_item.offer_id,
+                        queue_item_id=current_item.id,
+                        note=reason,
+                    )
                 if sk.next_item:
                     st.session_state.ra_item_id = sk.next_item.id
                 else:
@@ -2046,6 +2101,7 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
         st.session_state.ra_fill_result = None
         st.session_state.ra_quality = None
         st.session_state.ra_last_action = ""
+        st.session_state.ra_campaign_id = ""
         st.info("Session stopped. Navigate to Job Search to manage the queue.")
 
 
@@ -2306,6 +2362,367 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 st.info("No completed items yet.")
 
 
+def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
+    """Apply Campaign mode — create focused application sprints."""
+    st.title("Apply Campaigns")
+
+    from datetime import date as _date  # noqa: PLC0415
+
+    from cv_sender.campaigns import (  # noqa: PLC0415
+        REACT_SPRINT_PRESET,
+        build_campaign_queue,
+        complete_campaign_if_target_reached,
+        create_campaign,
+        generate_campaign_summary,
+        get_active_campaigns,
+        get_campaign,
+        get_campaign_progress,
+        mark_campaign_sent,
+        record_campaign_activity,
+        update_campaign_status,
+    )
+    from cv_sender.models import (  # noqa: PLC0415
+        CampaignActivityType,
+        CampaignGoalType,
+        CampaignStatus,
+    )
+    from cv_sender.storage import (  # noqa: PLC0415
+        get_campaign_by_id,
+        load_apply_queue,
+        load_campaigns,
+        update_campaign,
+    )
+
+    # ------------------------------------------------------------------
+    # Tabs
+    # ------------------------------------------------------------------
+    tab_create, tab_active, tab_queue, tab_summary = st.tabs(
+        ["Create Campaign", "Active Campaigns", "Campaign Queue", "Session Summary"]
+    )
+
+    # ==================================================================
+    # TAB 1 — Create campaign
+    # ==================================================================
+    with tab_create:
+        st.subheader("New Campaign")
+
+        # Preset loader
+        preset_col, _ = st.columns([1, 3])
+        with preset_col:
+            if st.button("React Emergency Sprint", type="primary"):
+                for k, v in REACT_SPRINT_PRESET.items():
+                    st.session_state[f"nc_{k}"] = v
+                st.success("Preset loaded — review and click Create.")
+
+        st.divider()
+
+        # Defaults (populated by preset or user typing)
+        def _sv(key: str, default):  # noqa: ANN001
+            return st.session_state.get(f"nc_{key}", default)
+
+        with st.form("create_campaign_form"):
+            name = st.text_input("Campaign name", value=_sv("name", ""))
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                target_count = st.number_input(
+                    "Target (applications)", min_value=1, max_value=500,
+                    value=_sv("target_count", 25), step=1,
+                )
+            with c2:
+                goal_type_choice = st.selectbox(
+                    "Goal type",
+                    [g.value for g in CampaignGoalType],
+                    index=[g.value for g in CampaignGoalType].index(
+                        _sv("goal_type", CampaignGoalType.APPLICATIONS_SENT)
+                    ),
+                )
+            with c3:
+                target_date = st.date_input(
+                    "Target date",
+                    value=_sv("target_date", _date.today().isoformat()),
+                )
+
+            st.markdown("**Search criteria**")
+            kw_col, tech_col, loc_col = st.columns(3)
+            with kw_col:
+                keywords_raw = st.text_area(
+                    "Keywords (one per line)",
+                    value="\n".join(_sv("keywords", [])),
+                    height=100,
+                )
+            with tech_col:
+                technologies_raw = st.text_area(
+                    "Technologies (one per line)",
+                    value="\n".join(_sv("technologies", [])),
+                    height=100,
+                )
+            with loc_col:
+                locations_raw = st.text_area(
+                    "Locations (one per line)",
+                    value="\n".join(_sv("locations", [])),
+                    height=100,
+                )
+
+            src_all = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj", "linkedin"]
+            preset_sources = _sv("sources", [])
+            sources_chosen = st.multiselect(
+                "Sources", src_all,
+                default=[s for s in preset_sources if s in src_all],
+            )
+
+            opt_col1, opt_col2, opt_col3, opt_col4 = st.columns(4)
+            with opt_col1:
+                min_score = st.number_input(
+                    "Min score", min_value=0, max_value=100,
+                    value=_sv("min_score", 0), step=5,
+                )
+            with opt_col2:
+                min_salary = st.number_input(
+                    "Min salary B2B", min_value=0,
+                    value=_sv("min_salary_b2b", 0), step=1000,
+                )
+            with opt_col3:
+                require_salary = st.checkbox(
+                    "Require salary",
+                    value=_sv("require_salary", False),
+                )
+            with opt_col4:
+                include_follow_ups = st.checkbox(
+                    "Include follow-ups",
+                    value=_sv("include_follow_ups", False),
+                )
+
+            notes = st.text_area("Notes (optional)", value="", height=60)
+
+            submitted = st.form_submit_button("Create Campaign", type="primary")
+
+        if submitted:
+            if not name.strip():
+                st.error("Campaign name is required.")
+            else:
+                campaign = create_campaign(
+                    name=name.strip(),
+                    target_count=int(target_count),
+                    target_date=str(target_date),
+                    goal_type=CampaignGoalType(goal_type_choice),
+                    keywords=[k.strip() for k in keywords_raw.splitlines() if k.strip()],
+                    technologies=[t.strip() for t in technologies_raw.splitlines() if t.strip()],
+                    locations=[lo.strip() for lo in locations_raw.splitlines() if lo.strip()],
+                    sources=sources_chosen,
+                    min_score=int(min_score),
+                    min_salary_b2b=int(min_salary),
+                    require_salary=require_salary,
+                    include_follow_ups=include_follow_ups,
+                    notes=notes,
+                )
+                st.success(f"Campaign **{campaign.name}** created (id: `{campaign.id}`)")
+                # Offer to immediately attach matching queue items
+                attached = build_campaign_queue(campaign.id)
+                if attached:
+                    st.info(f"Attached {len(attached)} matching queue item(s) to the campaign.")
+                st.rerun()
+
+    # ==================================================================
+    # TAB 2 — Active campaigns dashboard
+    # ==================================================================
+    with tab_active:
+        active = get_active_campaigns()
+        all_campaigns = load_campaigns()
+
+        if not all_campaigns:
+            st.info("No campaigns yet. Create one in the **Create Campaign** tab.")
+        else:
+            # Paused / archived in an expander
+            non_active = [c for c in all_campaigns if c.status != CampaignStatus.ACTIVE]
+
+            for campaign in active:
+                progress = get_campaign_progress(campaign.id)
+                with st.container(border=True):
+                    h1, h2 = st.columns([4, 1])
+                    with h1:
+                        st.markdown(f"### {campaign.name}")
+                        st.caption(
+                            f"Target: {campaign.target_count} by {campaign.target_date} · "
+                            f"Goal: {campaign.goal_type}"
+                        )
+                    with h2:
+                        st.markdown(
+                            f"<div style='text-align:right;font-size:1.6rem;font-weight:bold'>"
+                            f"{progress.progress_pct if progress else 0:.0f}%</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    if progress:
+                        prog_cols = st.columns(6)
+                        prog_cols[0].metric("Sent", progress.sent)
+                        prog_cols[1].metric("Remaining", progress.remaining)
+                        prog_cols[2].metric("Queued", progress.queued_available)
+                        prog_cols[3].metric("Filled", progress.filled_not_sent)
+                        prog_cols[4].metric("Skipped", progress.skipped)
+                        prog_cols[5].metric("Failed", progress.failed)
+
+                        st.progress(min(1.0, progress.progress_pct / 100))
+
+                        if progress.queue_shortage and progress.remaining > 0:
+                            st.warning(f"⚠️ {progress.queue_shortage_message}")
+                        elif progress.remaining == 0:
+                            st.success("Target reached!")
+
+                    action_col1, action_col2, action_col3, action_col4, action_col5 = st.columns(5)
+                    with action_col1:
+                        if st.button("Collect more offers", key=f"collect_{campaign.id}"):
+                            from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+                            from cv_sender.job_search import run_job_collection  # noqa: PLC0415
+
+                            criteria = JobSearchCriteria(
+                                keywords=campaign.keywords or ["React Developer"],
+                                technologies=campaign.technologies or ["React"],
+                                locations=campaign.locations or ["Remote"],
+                                min_salary_b2b=campaign.min_salary_b2b,
+                                require_salary=campaign.require_salary,
+                            )
+                            sources = campaign.sources or ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
+                            with st.spinner("Collecting offers …"):
+                                run_job_collection(criteria, sources, auto_score=True)
+                            st.success("Collection done.")
+                            st.rerun()
+                    with action_col2:
+                        if st.button("Build/rebuild queue", key=f"buildq_{campaign.id}"):
+                            from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+
+                            with st.spinner("Building queue …"):
+                                build_apply_queue_from_offers()
+                                attached = build_campaign_queue(
+                                    campaign.id,
+                                    min_score=campaign.min_score or None,
+                                )
+                            st.success(f"Queue rebuilt. {len(attached)} item(s) attached.")
+                            st.rerun()
+                    with action_col3:
+                        if st.button("Start Rapid Apply", key=f"ra_{campaign.id}", type="primary"):
+                            st.session_state.ra_campaign_id = campaign.id
+                            st.session_state.ra_item_id = None
+                            st.session_state.ra_fill_result = None
+                            st.session_state.ra_quality = None
+                            st.session_state.ra_processed = 0
+                            st.info("Navigate to **Rapid Apply** page to start the session.")
+                    with action_col4:
+                        if st.button("Mark complete", key=f"complete_{campaign.id}"):
+                            update_campaign_status(campaign.id, CampaignStatus.COMPLETED)
+                            st.success("Campaign marked complete.")
+                            st.rerun()
+                    with action_col5:
+                        if st.button("Pause", key=f"pause_{campaign.id}"):
+                            update_campaign_status(campaign.id, CampaignStatus.PAUSED)
+                            st.info("Campaign paused.")
+                            st.rerun()
+
+            if non_active:
+                with st.expander(f"Other campaigns ({len(non_active)})"):
+                    for campaign in non_active:
+                        c1, c2, c3 = st.columns([3, 1, 1])
+                        with c1:
+                            st.markdown(f"**{campaign.name}** — {campaign.status}")
+                        with c2:
+                            if campaign.status == CampaignStatus.PAUSED:
+                                if st.button("Resume", key=f"resume_{campaign.id}"):
+                                    update_campaign_status(campaign.id, CampaignStatus.ACTIVE)
+                                    st.rerun()
+                        with c3:
+                            if campaign.status != CampaignStatus.ARCHIVED:
+                                if st.button("Archive", key=f"archive_{campaign.id}"):
+                                    update_campaign_status(campaign.id, CampaignStatus.ARCHIVED)
+                                    st.rerun()
+
+    # ==================================================================
+    # TAB 3 — Campaign queue
+    # ==================================================================
+    with tab_queue:
+        all_campaigns = load_campaigns()
+        if not all_campaigns:
+            st.info("No campaigns yet.")
+        else:
+            camp_names = {c.id: c.name for c in all_campaigns}
+            selected_camp_id = st.selectbox(
+                "Select campaign",
+                options=list(camp_names.keys()),
+                format_func=lambda cid: camp_names[cid],
+                key="cq_selected_campaign",
+            )
+
+            if selected_camp_id:
+                all_queue = load_apply_queue()
+                camp_items = [q for q in all_queue if q.campaign_id == selected_camp_id]
+
+                if not camp_items:
+                    st.info("No queue items attached to this campaign. Use **Build/rebuild queue** from the Active Campaigns tab.")
+                else:
+                    st.caption(f"{len(camp_items)} item(s) in campaign queue")
+
+                    for item in sorted(camp_items, key=lambda x: x.priority_score, reverse=True):
+                        status_icon = {
+                            "queued": "🟡", "in_progress": "🔵", "filled": "🟢",
+                            "failed": "🔴", "sent": "✅", "skipped": "⏭️",
+                        }.get(item.status, "⚪")
+                        with st.container(border=True):
+                            row1, row2 = st.columns([4, 1])
+                            with row1:
+                                st.markdown(
+                                    f"{status_icon} **{item.company}** — {item.title} "
+                                    f"({item.source}) · Score {item.score or '?'} · "
+                                    f"Priority {item.priority_score:.1f}"
+                                )
+                                if item.warnings:
+                                    st.caption("⚠️ " + " · ".join(item.warnings[:2]))
+                            with row2:
+                                if st.button("Remove from campaign", key=f"rem_{item.id}"):
+                                    from cv_sender.storage import update_queue_item  # noqa: PLC0415
+
+                                    updated = item.model_copy(update={"campaign_id": ""})
+                                    update_queue_item(updated)
+                                    st.rerun()
+
+    # ==================================================================
+    # TAB 4 — Session summary
+    # ==================================================================
+    with tab_summary:
+        all_campaigns = load_campaigns()
+        if not all_campaigns:
+            st.info("No campaigns yet.")
+        else:
+            camp_names = {c.id: c.name for c in all_campaigns}
+            summary_camp_id = st.selectbox(
+                "Select campaign",
+                options=list(camp_names.keys()),
+                format_func=lambda cid: camp_names[cid],
+                key="cs_selected_campaign",
+            )
+
+            if summary_camp_id:
+                summary = generate_campaign_summary(summary_camp_id)
+                st.markdown(summary)
+
+                progress = get_campaign_progress(summary_camp_id)
+                if progress:
+                    st.divider()
+                    st.markdown("**Next recommended action:**")
+                    if progress.remaining == 0:
+                        st.success("Target reached! Consider marking the campaign complete.")
+                    elif progress.filled_not_sent > 0:
+                        st.info(f"You have {progress.filled_not_sent} filled form(s). "
+                                "Open the browser and submit them, then click Mark as sent.")
+                    elif progress.queue_shortage:
+                        st.warning(
+                            f"Queue has only {progress.queued_available} offer(s) left. "
+                            "Collect more offers first."
+                        )
+                    else:
+                        st.info(
+                            f"You sent {progress.sent}/{progress.target} applications. "
+                            f"{progress.remaining} remaining. Start Rapid Apply to continue."
+                        )
+
+
 def _page_bookmarklet() -> None:
     from cv_sender.bookmarklet_server import BOOKMARKLET_JS
 
@@ -2467,6 +2884,8 @@ elif page == "Job Search":
     _page_job_search()
 elif page == "Rapid Apply":
     _page_rapid_apply()
+elif page == "Campaigns":
+    _page_campaigns()
 elif page == "Bookmarklet":
     _page_bookmarklet()
 elif page == "Debug":

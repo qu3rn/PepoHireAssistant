@@ -330,5 +330,83 @@ class ApplyQueueItem(BaseModel):
     status: ApplyQueueItemStatus = ApplyQueueItemStatus.QUEUED
     reasons: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Campaign linkage — empty string means not attached to any campaign
+    campaign_id: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Campaigns
+# ---------------------------------------------------------------------------
+
+
+class CampaignStatus(StrEnum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class CampaignGoalType(StrEnum):
+    APPLICATIONS_SENT = "applications_sent"
+    INTERVIEWS = "interviews"
+    FOLLOW_UPS = "follow_ups"
+    MIXED = "mixed"
+
+
+class CampaignActivityType(StrEnum):
+    OFFER_COLLECTED = "offer_collected"
+    QUEUED = "queued"
+    FILLED = "filled"
+    SENT = "sent"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+    FOLLOW_UP_SENT = "follow_up_sent"
+
+
+class Campaign(BaseModel):
+    """A focused job-application campaign (e.g. 'React Sprint — 25 apps today')."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    goal_type: CampaignGoalType = CampaignGoalType.APPLICATIONS_SENT
+    target_count: int = 25
+    target_date: str = ""           # ISO date string, e.g. "2026-05-27"
+    # Search profile (stored as plain lists/scalars for portability)
+    keywords: list[str] = Field(default_factory=list)
+    technologies: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    min_score: int = 0
+    min_salary_b2b: int = 0
+    require_salary: bool = False
+    include_follow_ups: bool = False
+    include_maybe: bool = True
+    # Status
+    status: CampaignStatus = CampaignStatus.ACTIVE
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    # Running counters (denormalised for quick display; authoritative source is activities)
+    sent_count: int = 0
+    filled_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    follow_up_count: int = 0
+    notes: str = ""
+
+
+class CampaignActivity(BaseModel):
+    """One recorded event inside a campaign."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    campaign_id: str
+    type: CampaignActivityType
+    offer_id: str = ""
+    application_id: str = ""
+    queue_item_id: str = ""
+    timestamp: datetime = Field(default_factory=_utcnow)
+    note: str = ""

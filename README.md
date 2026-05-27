@@ -1011,3 +1011,104 @@ an event to the linked application.
 
 Click **🛑 Stop session** to reset all in-memory session state. The queue is preserved; you can
 resume any time.
+
+---
+
+## Apply Campaigns
+
+An **Apply Campaign** is a named, time-boxed goal — for example *"React Frontend Sprint — send 25
+applications today"*. Campaigns track progress across multiple Rapid Apply sessions and warn you
+when the queue is running low.
+
+### Creating a campaign
+
+Navigate to **Campaigns → Create Campaign**.
+
+| Field | Description |
+|---|---|
+| Campaign name | Free text label (e.g. "React Sprint 2026-05-27") |
+| Target | Number of applications to send (default: 25) |
+| Target date | Deadline (default: today) |
+| Goal type | `applications_sent` / `interviews` / `follow_ups` / `mixed` |
+| Keywords | Job title search terms, one per line |
+| Technologies | Tech stack filter, one per line |
+| Locations | Location filter, one per line |
+| Sources | Which job boards to collect from |
+| Min score | Minimum offer score to include (0 = no filter) |
+| Min salary B2B | Salary floor (0 = no filter) |
+| Include follow-ups | Whether to track follow-up tasks as campaign activities |
+
+**React Emergency Sprint preset**: click the **React Emergency Sprint** button to populate all
+fields with sensible defaults for a React/Frontend job hunt:
+
+```
+name:         React Frontend Sprint
+target:       25
+keywords:     React Developer, Frontend Developer, Frontend Engineer
+technologies: React, TypeScript, Next.js
+sources:      JustJoinIT, RocketJobs, NoFluffJobs, Pracuj
+min_score:    60
+```
+
+### Collecting offers into a campaign
+
+1. On the **Active Campaigns** tab, find your campaign.
+2. Click **Collect more offers** to run the search using the campaign criteria.
+3. Click **Build/rebuild queue** to score new offers and attach matching queue items
+   to the campaign automatically.
+
+Alternatively, collect offers from the **Job Search** page and then rebuild the queue from the
+Campaigns dashboard — unattached items matching the campaign's sources and score threshold are
+attached automatically.
+
+### Processing a campaign in Rapid Apply
+
+1. Click **Start Rapid Apply** on the campaign card.  This sets the campaign as the active session
+   context and navigates you to the Rapid Apply page.
+2. The page shows a **campaign progress banner** at the top with target, sent, remaining, and a
+   progress bar.
+3. Only queue items assigned to the campaign are shown — the session is narrowed to campaign items.
+4. Fill → review → submit manually → **Mark as sent**.  Every sent/skipped action records a
+   campaign activity and updates the campaign counters.
+5. When the sent count reaches the target, the campaign is automatically marked **Completed** and
+   you see a "Target reached!" message.
+
+### How progress is counted
+
+| Counter | What increments it |
+|---|---|
+| Sent | Each time you click "Mark as sent" inside the campaign session |
+| Filled | Each fill action that succeeds (FILLED or PARTIAL) |
+| Skipped | Each skip action |
+| Failed | Each fill that fails |
+| Follow-ups | Manually recorded follow-up activities (if `include_follow_ups` is on) |
+
+Progress % = `sent / target × 100` (capped at 100%).
+
+A **queue shortage warning** appears when `remaining > queued_available` — i.e. you do not have
+enough queued items to reach your target without collecting more offers.
+
+### Safety note
+
+The campaign mode does **not** auto-submit any application form.  The flow is always:
+
+1. Tool fills the form (Playwright, no submit)
+2. You review the pre-filled form in the browser
+3. You click Submit yourself
+4. You return to the app and click **Mark as sent**
+
+### Campaign statuses
+
+| Status | Meaning |
+|---|---|
+| active | Being worked on |
+| paused | Temporarily stopped; resume from dashboard |
+| completed | Target reached or manually marked complete |
+| archived | Dismissed, no longer shown in active list |
+
+### Data files
+
+| File | Contents |
+|---|---|
+| `data/campaigns.json` | Campaign definitions |
+| `data/campaign_activities.json` | Per-event activity log |
