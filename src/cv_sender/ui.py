@@ -21,6 +21,7 @@ from cv_sender.config import (  # noqa: E402  (after set_page_config)
     AnswerGenerationConfig,
     AnswerProfileConfig,
     FollowUpConfig,
+    GmailConfig,
     LMStudioConfig,
     Profile,
     Settings,
@@ -47,7 +48,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Bookmarklet", "Debug"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Bookmarklet", "Debug"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -700,6 +701,35 @@ def _page_applications() -> None:
                 else:
                     st.caption("Application not found.")
 
+            # ── Matched emails ────────────────────────────────────────────
+            email_matches = services.get_matches_for_application(app.id)
+            if email_matches:
+                with st.expander(f"📧 Matched emails ({len(email_matches)})"):
+                    for em in email_matches:
+                        st.markdown(
+                            f"**{em.subject or '(no subject)'}**  —  "
+                            f"`{em.from_email}`  |  {em.received_at.strftime('%Y-%m-%d')}"
+                        )
+                        st.caption(
+                            f"Classification: `{em.classification}`  "
+                            f"Confidence: {em.confidence:.0%}  "
+                            f"Suggestion: `{em.status_suggestion}`  "
+                            f"Status: {em.status}"
+                        )
+                        if em.snippet:
+                            st.caption(em.snippet[:200])
+                        if em.status == "pending":
+                            ea1, ea2 = st.columns(2)
+                            if ea1.button("Apply suggestion", key=f"em_apply_{em.id}"):
+                                ok, msg = services.apply_email_match(em.id)
+                                st.success(msg) if ok else st.error(msg)
+                                st.rerun()
+                            if ea2.button("Ignore", key=f"em_ignore_{em.id}"):
+                                ok, msg = services.ignore_email_match(em.id)
+                                st.success(msg) if ok else st.error(msg)
+                                st.rerun()
+                        st.divider()
+
             # ── Events timeline ───────────────────────────────────────────
             if app.events:
                 with st.expander("📋 Events timeline"):
@@ -971,6 +1001,26 @@ def _page_settings() -> None:
             value=settings.follow_up.allow_weekend_due_dates,
         )
 
+        st.subheader("Gmail (read-only)")
+        gm_enabled = st.checkbox("Enable Gmail integration", value=settings.gmail.enabled)
+        gm_creds = st.text_input("Credentials file path", value=settings.gmail.credentials_path)
+        gm_token = st.text_input("Token file path", value=settings.gmail.token_path)
+        gc1, gc2 = st.columns(2)
+        gm_scan_days = gc1.number_input(
+            "Scan days back", min_value=1, max_value=90, value=settings.gmail.scan_days_back
+        )
+        gm_max_results = gc2.number_input(
+            "Max results", min_value=10, max_value=500, value=settings.gmail.max_results
+        )
+        gm_store_snippet = st.checkbox("Store email snippets", value=settings.gmail.store_snippet)
+        gm_store_body = st.checkbox(
+            "Store full email bodies (not recommended)", value=settings.gmail.store_email_body
+        )
+        gm_auto_update = st.checkbox(
+            "Auto-apply status suggestions (not recommended)",
+            value=settings.gmail.auto_update_status,
+        )
+
         submitted = st.form_submit_button("Save settings")
 
     if submitted:
@@ -1017,9 +1067,184 @@ def _page_settings() -> None:
                 show_due_within_days=int(fu_show_within),
                 allow_weekend_due_dates=fu_weekends,
             ),
+            gmail=GmailConfig(
+                enabled=gm_enabled,
+                credentials_path=gm_creds,
+                token_path=gm_token,
+                readonly=True,
+                scan_days_back=int(gm_scan_days),
+                max_results=int(gm_max_results),
+                store_snippet=gm_store_snippet,
+                store_email_body=gm_store_body,
+                auto_update_status=gm_auto_update,
+            ),
         )
         save_settings(updated)
         st.success("Settings saved to `config/settings.yaml`.")
+
+
+# ---------------------------------------------------------------------------
+# Gmail page
+# ---------------------------------------------------------------------------
+
+
+def _page_gmail() -> None:
+    st.title("Gmail – read-only integration")
+
+    settings = load_settings()
+    cfg = settings.gmail
+
+    # ── 1. Setup status ───────────────────────────────────────────────────
+    st.subheader("Setup status")
+    from cv_sender.gmail_integration import is_gmail_authenticated, is_gmail_configured  # noqa: PLC0415
+
+    col1, col2 = st.columns(2)
+    col1.metric("Gmail enabled", "Yes" if cfg.enabled else "No")
+    col1.metric("Credentials file", "Found" if Path(cfg.credentials_path).exists() else "Missing")
+    col2.metric("Token (authenticated)", "Yes" if is_gmail_authenticated(cfg) else "No")
+    col2.caption(f"Scope: `https://www.googleapis.com/auth/gmail.readonly`  _(read-only)_")
+
+    if not cfg.enabled:
+        st.info(
+            "Gmail integration is disabled. Enable it in **Settings** under the _Gmail_ section."
+        )
+        _render_gmail_setup_instructions(cfg)
+        return
+
+    if not Path(cfg.credentials_path).exists():
+        st.warning(f"Credentials file not found at `{cfg.credentials_path}`.")
+        _render_gmail_setup_instructions(cfg)
+        return
+
+    # ── 2. Scan controls ─────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("Scan Gmail")
+    sc1, sc2, sc3 = st.columns(3)
+    scan_7 = sc1.button("Scan last 7 days", key="gmail_scan_7")
+    scan_30 = sc2.button("Scan last 30 days", key="gmail_scan_30")
+    use_llm = sc3.checkbox("Use LM Studio classification", value=False, key="gmail_use_llm")
+
+    if scan_7 or scan_30:
+        # Temporarily override scan_days_back for this scan
+        scan_days = 7 if scan_7 else 30
+        from cv_sender.config import GmailConfig as _GmailConfig  # noqa: PLC0415
+        scan_cfg = _GmailConfig(**{**cfg.model_dump(), "scan_days_back": scan_days})
+
+        # Patch settings so run_gmail_scan picks up correct config
+        with st.spinner(f"Scanning last {scan_days} days…"):
+            from cv_sender.gmail_integration import (  # noqa: PLC0415
+                get_gmail_service,
+                scan_gmail_for_application_replies,
+            )
+            from cv_sender.storage import add_email_match, load_email_matches  # noqa: PLC0415
+
+            try:
+                service = get_gmail_service(scan_cfg)
+                applications = load_applications()
+                existing_ids = {m.email_message_id for m in load_email_matches()}
+                new_matches = scan_gmail_for_application_replies(
+                    service=service,
+                    applications=applications,
+                    cfg=scan_cfg,
+                    existing_message_ids=existing_ids,
+                    use_llm=use_llm,
+                )
+                added = sum(1 for m in new_matches if add_email_match(m))
+                skipped = len(new_matches) - added
+                st.success(f"Scan complete — {added} new match(es) found, {skipped} duplicate(s) skipped.")
+            except ImportError as exc:
+                st.error(str(exc))
+            except FileNotFoundError as exc:
+                st.error(str(exc))
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Scan error: {exc}")
+        st.rerun()
+
+    # ── 3. Matches table ─────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("Email matches")
+
+    from cv_sender.storage import load_email_matches  # noqa: PLC0415
+    all_matches = load_email_matches()
+
+    if not all_matches:
+        st.info("No email matches yet. Run a scan above.")
+    else:
+        status_filter = st.selectbox(
+            "Filter by match status",
+            ["All", "pending", "applied", "ignored"],
+            key="gmail_status_filter",
+        )
+        shown = all_matches if status_filter == "All" else [m for m in all_matches if m.status == status_filter]
+        shown = sorted(shown, key=lambda m: m.received_at, reverse=True)
+
+        st.caption(f"Showing {len(shown)} of {len(all_matches)} matches")
+
+        for match in shown:
+            label = (
+                f"**{match.subject or '(no subject)'}**  — {match.from_email}"
+                f"  |  {match.classification}  |  {match.received_at.strftime('%Y-%m-%d')}"
+            )
+            with st.expander(label):
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.markdown(f"**From:** {match.from_name or '—'} `{match.from_email}`")
+                mc1.markdown(f"**Received:** {match.received_at.strftime('%Y-%m-%d %H:%M')}")
+                mc2.markdown(f"**Company:** {match.matched_company or '—'}")
+                mc2.markdown(f"**Application:** {match.matched_application_title or '—'}")
+                mc3.markdown(f"**Match score:** {match.match_score}")
+                mc3.markdown(f"**Classification:** `{match.classification}`  (conf: {match.confidence:.0%})")
+
+                if match.snippet:
+                    st.caption(f"**Snippet:** {match.snippet[:300]}")
+
+                if match.reasons:
+                    st.caption("**Reasons:** " + "  |  ".join(match.reasons))
+
+                st.markdown(f"**Status suggestion:** `{match.status_suggestion}`")
+
+                # Action buttons
+                if match.status == "pending":
+                    ab1, ab2 = st.columns(2)
+                    if ab1.button("Apply suggestion", key=f"gmail_apply_{match.id}"):
+                        ok, msg = services.apply_email_match(match.id)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
+                    if ab2.button("Ignore", key=f"gmail_ignore_{match.id}"):
+                        ok, msg = services.ignore_email_match(match.id)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
+                else:
+                    st.caption(f"Status: **{match.status}**")
+
+
+def _render_gmail_setup_instructions(cfg: Any) -> None:
+    st.markdown("---")
+    st.subheader("Setup instructions")
+    st.markdown(
+        f"""
+**Step 1 – Create a Google Cloud project**
+1. Go to [https://console.cloud.google.com](https://console.cloud.google.com)
+2. Create a new project (or select an existing one).
+3. Enable the **Gmail API** under _APIs & Services → Library_.
+
+**Step 2 – Create OAuth 2.0 credentials**
+1. Go to _APIs & Services → Credentials_.
+2. Click **Create Credentials → OAuth client ID**.
+3. Choose **Desktop app**.
+4. Download the JSON file.
+5. Save it to: `{cfg.credentials_path}`
+
+**Step 3 – Enable Gmail in settings**
+Set `gmail.enabled: true` in `config/settings.yaml` (or via the Settings page).
+
+**Step 4 – First-time authentication**
+Click **Scan** — a browser window will open asking you to authorise read-only Gmail access.
+The token is saved to `{cfg.token_path}` and reused for future scans.
+
+> The app requests **read-only** scope only: `https://www.googleapis.com/auth/gmail.readonly`
+> No emails are sent, deleted, or modified.
+"""
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1178,6 +1403,8 @@ elif page == "Profile":
     _page_profile()
 elif page == "Settings":
     _page_settings()
+elif page == "Gmail":
+    _page_gmail()
 elif page == "Bookmarklet":
     _page_bookmarklet()
 elif page == "Debug":

@@ -6,10 +6,11 @@ import json
 import os
 from pathlib import Path
 
-from cv_sender.models import Application, Offer
+from cv_sender.models import Application, EmailMatch, Offer
 
 _DEFAULT_OFFERS = Path(os.getenv("OFFERS_PATH", "data/offers.json"))
 _DEFAULT_APPLICATIONS = Path(os.getenv("APPLICATIONS_PATH", "data/applications.json"))
+_DEFAULT_EMAIL_MATCHES = Path(os.getenv("EMAIL_MATCHES_PATH", "data/email_matches.json"))
 
 
 # ---------------------------------------------------------------------------
@@ -117,3 +118,48 @@ def update_application(application: Application, path: Path | None = None) -> No
     apps = load_applications(path)
     updated = [application if a.id == application.id else a for a in apps]
     save_applications(updated, path)
+
+
+# ---------------------------------------------------------------------------
+# Email matches
+# ---------------------------------------------------------------------------
+
+
+def load_email_matches(path: Path | None = None) -> list[EmailMatch]:
+    """Load all email matches from storage."""
+    raw = _read_json(path or _DEFAULT_EMAIL_MATCHES)
+    return [EmailMatch.model_validate(item) for item in raw]
+
+
+def save_email_matches(matches: list[EmailMatch], path: Path | None = None) -> None:
+    """Persist all email matches to storage."""
+    _write_json(
+        path or _DEFAULT_EMAIL_MATCHES,
+        [m.model_dump(mode="json") for m in matches],
+    )
+
+
+def add_email_match(match: EmailMatch, path: Path | None = None) -> bool:
+    """Add *match* to storage.
+
+    Returns ``False`` without saving if a match with the same Gmail message id
+    already exists (prevents duplicates).
+    """
+    matches = load_email_matches(path)
+    if any(m.email_message_id == match.email_message_id for m in matches):
+        return False
+    matches.append(match)
+    save_email_matches(matches, path)
+    return True
+
+
+def get_email_match_by_id(match_id: str, path: Path | None = None) -> EmailMatch | None:
+    """Return the email match with *match_id*, or ``None``."""
+    return next((m for m in load_email_matches(path) if m.id == match_id), None)
+
+
+def update_email_match(match: EmailMatch, path: Path | None = None) -> None:
+    """Replace the stored email match that has the same id as *match*."""
+    matches = load_email_matches(path)
+    updated = [match if m.id == match.id else m for m in matches]
+    save_email_matches(updated, path)
