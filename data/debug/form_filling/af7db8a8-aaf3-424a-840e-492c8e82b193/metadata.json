@@ -1,0 +1,34 @@
+{
+  "run_id": "af7db8a8-aaf3-424a-840e-492c8e82b193",
+  "offer_id": "bad56d3e-01ed-4fb6-ae5e-2670e58035cc",
+  "source": "justjoin.it",
+  "url": "https://justjoin.it/job-offer/sellintegro-react-frontend-developer-wroclaw-javascript",
+  "started_at": "2026-05-27T15:40:26.047008Z",
+  "finished_at": "2026-05-27T15:40:50.509607Z",
+  "filler_name": "JustJoinFiller",
+  "status": "partial",
+  "screenshot_path": "",
+  "form_snapshot_path": "data\\debug\\form_filling\\af7db8a8-aaf3-424a-840e-492c8e82b193\\form_snapshot.json",
+  "step_log_path": "data\\debug\\form_filling\\af7db8a8-aaf3-424a-840e-492c8e82b193\\step_log.json",
+  "warnings": [],
+  "error": "",
+  "fields_detected_summary": {
+    "inputs": 0,
+    "textareas": 0,
+    "selects": 0
+  },
+  "fields_filled": [
+    "email",
+    "last_name",
+    "full_name"
+  ],
+  "fields_missing": [
+    "first_name",
+    "phone",
+    "linkedin",
+    "github",
+    "expected_salary",
+    "availability",
+    "cv_upload"
+  ]
+}

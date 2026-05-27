@@ -52,7 +52,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Bookmarklet", "Debug"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Rapid Apply", "Bookmarklet", "Debug"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -1707,6 +1707,348 @@ def _page_analytics() -> None:  # noqa: PLR0912, PLR0914, PLR0915
 # ---------------------------------------------------------------------------
 
 
+
+def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
+    """Focused one-at-a-time apply session for the rapid apply queue."""
+    st.title("Rapid Apply Session")
+
+    from cv_sender.apply_queue import (  # noqa: PLC0415
+        advance_session,
+        build_apply_queue_from_offers,
+        get_active_queue_items,
+    )
+    from cv_sender.rapid_apply_service import (  # noqa: PLC0415
+        SKIP_REASONS,
+        QualityStatus,
+        do_fill,
+        do_mark_sent,
+        do_skip,
+        get_session_stats,
+    )
+    from cv_sender.storage import get_offer_by_id, get_queue_item_by_id  # noqa: PLC0415
+
+    # ------------------------------------------------------------------ #
+    # Session state bootstrap
+    # ------------------------------------------------------------------ #
+    if "ra_item_id" not in st.session_state:
+        st.session_state.ra_item_id = None
+    if "ra_started_at" not in st.session_state:
+        st.session_state.ra_started_at = None
+    if "ra_processed" not in st.session_state:
+        st.session_state.ra_processed = 0
+    if "ra_last_action" not in st.session_state:
+        st.session_state.ra_last_action = ""
+    if "ra_fill_result" not in st.session_state:
+        st.session_state.ra_fill_result = None
+    if "ra_quality" not in st.session_state:
+        st.session_state.ra_quality = None
+    if "ra_min_score" not in st.session_state:
+        st.session_state.ra_min_score = 0
+    if "ra_source_filter" not in st.session_state:
+        st.session_state.ra_source_filter = ""
+    if "ra_exclude_failed" not in st.session_state:
+        st.session_state.ra_exclude_failed = False
+
+    def _filter_kwargs() -> dict:
+        return dict(
+            min_score=st.session_state.ra_min_score or None,
+            source_filter=st.session_state.ra_source_filter or None,
+            exclude_failed=st.session_state.ra_exclude_failed,
+        )
+
+    # ------------------------------------------------------------------ #
+    # 1. Session summary bar
+    # ------------------------------------------------------------------ #
+    stats = get_session_stats()
+    active_items = get_active_queue_items(**_filter_kwargs())
+
+    summary_cols = st.columns(6)
+    summary_cols[0].metric("Queued", stats.queued)
+    summary_cols[1].metric("Filled", stats.filled)
+    summary_cols[2].metric("Sent", stats.sent)
+    summary_cols[3].metric("Skipped", stats.skipped)
+    summary_cols[4].metric("Failed", stats.failed)
+    summary_cols[5].metric("Session processed", st.session_state.ra_processed)
+
+    st.divider()
+
+    # ------------------------------------------------------------------ #
+    # Empty queue → call-to-action
+    # ------------------------------------------------------------------ #
+    if not active_items:
+        st.info("The apply queue is empty.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Run Emergency React Search + Build Queue", type="primary"):
+                from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+                from cv_sender.job_search import run_job_collection  # noqa: PLC0415
+
+                criteria = JobSearchCriteria.emergency_react()
+                sources = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
+                with st.spinner("Collecting React / Frontend offers …"):
+                    run_job_collection(criteria, sources, auto_score=True)
+                with st.spinner("Building queue …"):
+                    build_apply_queue_from_offers()
+                st.success("Done! Refresh to see the new queue items.")
+                st.rerun()
+        with col2:
+            if st.button("Build Queue from existing offers"):
+                with st.spinner("Building queue …"):
+                    build_apply_queue_from_offers()
+                st.success("Queue rebuilt.")
+                st.rerun()
+        return
+
+    # ------------------------------------------------------------------ #
+    # Resolve current item
+    # ------------------------------------------------------------------ #
+    current_item = None
+    if st.session_state.ra_item_id:
+        current_item = get_queue_item_by_id(st.session_state.ra_item_id)
+        # If the item is now in a terminal state, auto-advance
+        from cv_sender.models import ApplyQueueItemStatus  # noqa: PLC0415
+
+        if current_item and current_item.status in {
+            ApplyQueueItemStatus.SENT,
+            ApplyQueueItemStatus.SKIPPED,
+        }:
+            current_item = None
+
+    if current_item is None:
+        current_item = active_items[0] if active_items else None
+        if current_item:
+            st.session_state.ra_item_id = current_item.id
+            st.session_state.ra_fill_result = None
+            st.session_state.ra_quality = None
+            if st.session_state.ra_started_at is None:
+                from datetime import UTC, datetime  # noqa: PLC0415
+
+                st.session_state.ra_started_at = datetime.now(UTC).isoformat()
+
+    if current_item is None:
+        st.success("All items processed! Great work.")
+        return
+
+    # Position indicator
+    position = next(
+        (i + 1 for i, item in enumerate(active_items) if item.id == current_item.id),
+        1,
+    )
+    st.caption(f"Item {position} of {len(active_items)} active • session started {st.session_state.ra_started_at or 'now'}")
+
+    # ------------------------------------------------------------------ #
+    # Filters sidebar (compact)
+    # ------------------------------------------------------------------ #
+    with st.sidebar:
+        st.subheader("Session filters")
+        st.session_state.ra_min_score = st.number_input(
+            "Min score", min_value=0, max_value=100,
+            value=st.session_state.ra_min_score, step=5,
+        )
+        all_sources = sorted({i.source for i in get_active_queue_items()})
+        src_options = ["(any)"] + all_sources
+        cur_src = st.session_state.ra_source_filter or "(any)"
+        chosen_src = st.selectbox("Source", src_options, index=src_options.index(cur_src) if cur_src in src_options else 0)
+        st.session_state.ra_source_filter = "" if chosen_src == "(any)" else chosen_src
+        st.session_state.ra_exclude_failed = st.checkbox(
+            "Exclude failed items",
+            value=st.session_state.ra_exclude_failed,
+        )
+
+    # ------------------------------------------------------------------ #
+    # 2. Current offer card
+    # ------------------------------------------------------------------ #
+    offer = get_offer_by_id(current_item.offer_id)
+    with st.container(border=True):
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.subheader(f"{current_item.title}")
+            st.markdown(f"**{current_item.company}** · {current_item.source}")
+            if current_item.url:
+                st.markdown(f"🔗 [{current_item.url}]({current_item.url})")
+        with c2:
+            score_val = current_item.score or 0
+            score_color = "green" if score_val >= 75 else ("orange" if score_val >= 50 else "red")
+            st.markdown(
+                f"<div style='text-align:center'>"
+                f"<span style='font-size:2rem;font-weight:bold;color:{score_color}'>{score_val}</span>"
+                f"<br><small>score</small><br>"
+                f"<span style='font-size:1.1rem'>{current_item.priority_score:.1f}</span>"
+                f"<br><small>priority</small></div>",
+                unsafe_allow_html=True,
+            )
+
+        if offer:
+            detail_cols = st.columns(3)
+            with detail_cols[0]:
+                if offer.location:
+                    st.markdown(f"📍 {offer.location}")
+                if offer.contract:
+                    st.markdown(f"📄 {offer.contract}")
+            with detail_cols[1]:
+                if offer.salary_min or offer.salary_max:
+                    sal = f"{offer.salary_min or '?'} – {offer.salary_max or '?'} {offer.currency}"
+                    st.markdown(f"💰 {sal}")
+                if offer.decision:
+                    st.markdown(f"🎯 Decision: **{offer.decision}**")
+            with detail_cols[2]:
+                if current_item.selected_cv_name:
+                    st.markdown(f"📋 CV: {current_item.selected_cv_name}")
+                status_badge = {
+                    "queued": "🟡", "in_progress": "🔵", "filled": "🟢",
+                    "failed": "🔴", "sent": "✅", "skipped": "⏭️",
+                }.get(current_item.status, "⚪")
+                st.markdown(f"{status_badge} Status: **{current_item.status}**")
+
+        if current_item.reasons:
+            st.markdown("**Match reasons:** " + " · ".join(current_item.reasons[:4]))
+        if current_item.warnings:
+            st.warning("⚠️ " + " · ".join(current_item.warnings[:3]))
+
+    # ------------------------------------------------------------------ #
+    # Show fill result if available
+    # ------------------------------------------------------------------ #
+    if st.session_state.ra_fill_result is not None:
+        result = st.session_state.ra_fill_result
+        quality: QualityStatus = st.session_state.ra_quality
+
+        badge_map = {"ready": "🟢 Ready", "review_needed": "🟡 Review needed", "not_ready": "🔴 Not ready"}
+        st.markdown(f"**Quality: {badge_map.get(quality.badge, quality.badge)}**")
+
+        fill_cols = st.columns(2)
+        with fill_cols[0]:
+            for line in quality.checklist:
+                st.markdown(line)
+        with fill_cols[1]:
+            for w in quality.warnings:
+                st.warning(w)
+
+        if result.generated_answers:
+            with st.expander(f"Generated answers ({len(result.generated_answers)})"):
+                for ans in result.generated_answers:
+                    q = ans.get("question", "?")
+                    a = ans.get("answer", "")
+                    st.markdown(f"**Q:** {q}")
+                    st.markdown(f"**A:** {a}")
+                    st.divider()
+
+        if result.debug_run_id:
+            st.caption(f"Debug run ID: `{result.debug_run_id}` — check the Debug page for details.")
+
+        if result.status != "failed":
+            st.info(
+                "✋ **Application form has been filled.  "
+                "Please review it manually in the browser before submitting.**"
+            )
+
+    # ------------------------------------------------------------------ #
+    # Last action feedback
+    # ------------------------------------------------------------------ #
+    if st.session_state.ra_last_action:
+        st.success(st.session_state.ra_last_action)
+        st.session_state.ra_last_action = ""
+
+    # ------------------------------------------------------------------ #
+    # 3. Primary action buttons
+    # ------------------------------------------------------------------ #
+    st.markdown("---")
+    st.caption("**Keyboard hints:** 1 Fill · 2 Mark sent · 3 Skip")
+
+    btn_cols = st.columns(6)
+
+    # ——— Fill ———
+    with btn_cols[0]:
+        fill_label = "🔄 Retry fill" if current_item.status == "failed" else "1️⃣ Fill this application"
+        if st.button(fill_label, type="primary", use_container_width=True):
+            with st.spinner("Filling form …"):
+                action_result = do_fill(current_item.id)
+            st.session_state.ra_fill_result = action_result.fill_result
+            st.session_state.ra_quality = action_result.quality
+            st.session_state.ra_processed += 1
+            st.session_state.ra_last_action = f"Fill result: {action_result.fill_result.status}"
+            st.rerun()
+
+    # ——— Retry generic ———
+    if current_item.status == "failed":
+        with btn_cols[1]:
+            if st.button("🔁 Retry (Generic)", use_container_width=True):
+                with st.spinner("Retrying with generic filler …"):
+                    action_result = do_fill(current_item.id, force_generic=True)
+                st.session_state.ra_fill_result = action_result.fill_result
+                st.session_state.ra_quality = action_result.quality
+                st.session_state.ra_last_action = f"Generic retry result: {action_result.fill_result.status}"
+                st.rerun()
+
+    # ——— Mark sent ———
+    with btn_cols[2]:
+        if st.button("2️⃣ Mark as sent", use_container_width=True):
+            ms = do_mark_sent(current_item.id, **_filter_kwargs())
+            st.session_state.ra_processed += 1
+            if ms.next_item:
+                st.session_state.ra_item_id = ms.next_item.id
+            else:
+                st.session_state.ra_item_id = None
+            st.session_state.ra_fill_result = None
+            st.session_state.ra_quality = None
+            st.session_state.ra_last_action = ms.message
+            st.rerun()
+
+    # ——— Skip (with reason popover) ———
+    with btn_cols[3]:
+        if st.button("3️⃣ Skip", use_container_width=True):
+            st.session_state["ra_show_skip"] = True
+
+    # ——— Open offer ———
+    with btn_cols[4]:
+        if current_item.url:
+            st.link_button("🌐 Open offer", current_item.url, use_container_width=True)
+
+    # ——— Next (no status change) ———
+    with btn_cols[5]:
+        if st.button("⏭️ Next", use_container_width=True):
+            next_item = advance_session(current_item.id, **_filter_kwargs())
+            if next_item:
+                st.session_state.ra_item_id = next_item.id
+            else:
+                st.session_state.ra_item_id = None
+            st.session_state.ra_fill_result = None
+            st.session_state.ra_quality = None
+            st.rerun()
+
+    # ——— Skip reason modal ———
+    if st.session_state.get("ra_show_skip"):
+        with st.form("skip_form"):
+            st.markdown("**Skip reason** (optional)")
+            reason_choice = st.selectbox("Reason", ["(none)"] + SKIP_REASONS)
+            if st.form_submit_button("Confirm skip"):
+                reason = "" if reason_choice == "(none)" else reason_choice
+                sk = do_skip(current_item.id, reason=reason, **_filter_kwargs())
+                st.session_state.ra_processed += 1
+                if sk.next_item:
+                    st.session_state.ra_item_id = sk.next_item.id
+                else:
+                    st.session_state.ra_item_id = None
+                st.session_state.ra_fill_result = None
+                st.session_state.ra_quality = None
+                st.session_state.ra_last_action = sk.message
+                st.session_state["ra_show_skip"] = False
+                st.rerun()
+            if st.form_submit_button("Cancel"):
+                st.session_state["ra_show_skip"] = False
+                st.rerun()
+
+    # ——— Stop session ———
+    st.markdown("---")
+    if st.button("🛑 Stop session", help="Exit the focused session view"):
+        st.session_state.ra_item_id = None
+        st.session_state.ra_started_at = None
+        st.session_state.ra_processed = 0
+        st.session_state.ra_fill_result = None
+        st.session_state.ra_quality = None
+        st.session_state.ra_last_action = ""
+        st.info("Session stopped. Navigate to Job Search to manage the queue.")
+
+
 def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
     st.title("Job Search — Rapid Apply")
 
@@ -2123,6 +2465,8 @@ elif page == "Analytics":
     _page_analytics()
 elif page == "Job Search":
     _page_job_search()
+elif page == "Rapid Apply":
+    _page_rapid_apply()
 elif page == "Bookmarklet":
     _page_bookmarklet()
 elif page == "Debug":
