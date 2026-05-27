@@ -333,4 +333,3 @@ def get_campaign_activities(
     all_activities = load_campaign_activities(path)
     filtered = [a for a in all_activities if a.campaign_id == campaign_id]
     return sorted(filtered, key=lambda a: a.timestamp)
-

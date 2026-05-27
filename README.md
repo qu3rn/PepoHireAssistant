@@ -1112,4 +1112,3 @@ The campaign mode does **not** auto-submit any application form.  The flow is al
 |---|---|
 | `data/campaigns.json` | Campaign definitions |
 | `data/campaign_activities.json` | Per-event activity log |
-
