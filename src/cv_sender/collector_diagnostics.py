@@ -82,7 +82,8 @@ class SourceSummary(BaseModel):
 
     source: str
     status: Literal["ok", "partial", "failed"] = "ok"
-    found_count: int = 0
+    raw_found_count: int = 0    # items returned by the source API before local filtering
+    found_count: int = 0        # items that passed local criteria filter
     accepted_count: int = 0
     duplicate_count: int = 0
     rejected_count: int = 0
@@ -366,6 +367,12 @@ def generate_suggestions(
             suggestions.append(
                 f"Source '{ss.source}' returned partial results: {ss.error}"
             )
+        elif ss.raw_found_count > 0 and ss.found_count == 0:
+            suggestions.append(
+                f"Source '{ss.source}' found {ss.raw_found_count} raw offers but all "
+                "were rejected by local filters. Try broader keywords or lower the "
+                "minimum salary."
+            )
 
     return suggestions
 
@@ -445,7 +452,29 @@ def collect_with_diagnostics(
             logger.error("Collector %s failed: %s", name, exc)
             continue
 
-        ss.found_count = len(raw)
+        ss.raw_found_count = len(raw)
+
+        # Apply local criteria filter and separate raw from accepted.
+        from cv_sender.collectors.base import passes_criteria_filter  # noqa: PLC0415
+
+        filtered_raw: list = []
+        filter_rejected = 0
+        for offer in raw:
+            skip_reason = passes_criteria_filter(offer, criteria)
+            if skip_reason:
+                filter_rejected += 1
+            else:
+                filtered_raw.append(offer)
+
+        ss.found_count = len(filtered_raw)
+
+        if ss.raw_found_count > 0 and ss.found_count == 0:
+            logger.info(
+                "Source %s: raw_found=%d but all %d rejected by local filter",
+                name,
+                ss.raw_found_count,
+                filter_rejected,
+            )
 
         for offer in raw:
             decision = evaluate_collected_offer(offer, criteria, existing_urls, applied_urls)
@@ -510,8 +539,10 @@ def collect_with_diagnostics(
         if ss.status != "failed":
             if ss.failed_count > 0 and ss.accepted_count == 0:
                 ss.status = "partial"
-            elif ss.found_count == 0:
+            elif ss.raw_found_count == 0:
                 ss.status = "partial"
+                if not ss.error:
+                    ss.error = "source returned 0 raw results"
             else:
                 ss.status = "ok"
 

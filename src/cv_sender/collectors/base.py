@@ -107,7 +107,8 @@ class JobCollectionResult:
     """Aggregated result of a single-source collection run."""
 
     source: str
-    collected_count: int = 0
+    raw_found_count: int = 0      # items returned by collector.search() before filtering
+    collected_count: int = 0      # items that passed criteria filter (≤ raw_found_count)
     imported_count: int = 0
     duplicate_count: int = 0
     failed_count: int = 0
@@ -195,16 +196,22 @@ class BaseJobCollector(ABC):
             logger.error("Collector %s failed: %s", self.source, exc)
             return result
 
-        result.collected_count = len(raw)
+        result.raw_found_count = len(raw)
+        result.collected_count = len(raw)  # will be decremented by skipped below
 
+        filtered_count = 0
         for offer in raw:
             skip = passes_criteria_filter(offer, criteria)
             if skip:
                 offer.skip_reason = skip
                 result.skipped_count += 1
+                filtered_count += 1
             result.offers.append(offer)
             if not skip:
                 result.imported_count += 1  # will be confirmed by import step
+
+        # collected_count = raw minus filtered-out
+        result.collected_count = result.raw_found_count - filtered_count
 
         return result
 
