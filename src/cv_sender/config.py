@@ -182,6 +182,21 @@ class JobSearchConfig(BaseModel):
     )
 
 
+class PlaywrightCollectionConfig(BaseModel):
+    """Settings for the Playwright-based browser job collector."""
+
+    enabled: bool = True
+    headless: bool = False
+    slow_mo_ms: int = 150
+    max_scrolls_per_source: int = 8
+    scroll_pause_ms: int = 1200
+    max_urls_per_source: int = 50
+    page_timeout_ms: int = 30000
+    save_debug_screenshots: bool = True
+    save_debug_html_preview: bool = False  # can be large; off by default
+    user_agent: str | None = None
+
+
 class Settings(BaseModel):
     """Application-wide search and scoring settings."""
 
@@ -203,6 +218,7 @@ class Settings(BaseModel):
     gmail: GmailConfig = GmailConfig()
     calendar: CalendarConfig = CalendarConfig()
     job_search: JobSearchConfig = JobSearchConfig()
+    playwright_collection: PlaywrightCollectionConfig = PlaywrightCollectionConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +271,10 @@ def load_settings(path: str | None = None) -> Settings:
                 for k, v in js["sources"].items()
             }
         data["job_search"] = JobSearchConfig.model_validate(js)
+    if "playwright_collection" in data and isinstance(data["playwright_collection"], dict):
+        data["playwright_collection"] = PlaywrightCollectionConfig.model_validate(
+            data["playwright_collection"]
+        )
     return Settings.model_validate(data)
 
 
