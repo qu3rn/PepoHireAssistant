@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ st.set_page_config(
 from cv_sender.config import (  # noqa: E402  (after set_page_config)
     AnswerGenerationConfig,
     AnswerProfileConfig,
+    FollowUpConfig,
     LMStudioConfig,
     Profile,
     Settings,
@@ -184,6 +186,7 @@ def _page_dashboard() -> None:
 
     offers = _safe_load_offers()
     apps = _safe_load_applications()
+    settings = load_settings()
 
     total_offers = len(offers)
     apply_count = sum(1 for o in offers if o.decision == Decision.APPLY)
@@ -191,10 +194,12 @@ def _page_dashboard() -> None:
 
     total_apps = len(apps)
     sent = sum(1 for a in apps if a.status == ApplicationStatus.SENT)
+    follow_up_due_count = len(services.get_follow_up_due_applications())
     replies = sum(1 for a in apps if a.status == ApplicationStatus.REPLY_RECEIVED)
     interviews = sum(1 for a in apps if a.status == ApplicationStatus.INTERVIEW)
     rejected = sum(1 for a in apps if a.status == ApplicationStatus.REJECTED)
     got_offer = sum(1 for a in apps if a.status == ApplicationStatus.OFFER)
+    stale_count = len(services.get_stale_applications())
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total offers", total_offers)
@@ -203,10 +208,46 @@ def _page_dashboard() -> None:
     col4.metric("Applications sent", sent)
 
     col5, col6, col7, col8 = st.columns(4)
-    col5.metric("Replies received", replies)
-    col6.metric("Interviews", interviews)
-    col7.metric("Rejected", rejected)
+    col5.metric("Follow-ups due", follow_up_due_count, delta=None if not follow_up_due_count else "!")
+    col6.metric("Replies received", replies)
+    col7.metric("Interviews", interviews)
     col8.metric("Offers received", got_offer)
+
+    col9, col10 = st.columns([1, 3])
+    col9.metric("No response / stale", stale_count)
+
+    # Due now panel
+    if settings.follow_up.enabled:
+        due_apps = services.get_follow_up_due_applications()
+        if due_apps:
+            st.markdown("---")
+            st.subheader(f"⏰ Follow-ups due now ({len(due_apps)})")
+            now = datetime.now(UTC)
+            for app in sorted(due_apps, key=lambda a: a.follow_up_due_at or now):
+                days_since = (now - app.sent_at).days if app.sent_at else "?"
+                due_str = app.follow_up_due_at.strftime("%Y-%m-%d") if app.follow_up_due_at else "—"
+                with st.expander(f"**{app.company}** — {app.title}  |  due {due_str}", expanded=True):
+                    dc1, dc2, dc3 = st.columns(3)
+                    dc1.caption(f"Sent: {app.sent_at.strftime('%Y-%m-%d') if app.sent_at else '—'}")
+                    dc2.caption(f"Days since sent: {days_since}")
+                    dc3.caption(f"Due: {due_str}")
+                    bc1, bc2, bc3, bc4 = st.columns(4)
+                    if bc1.button("Mark follow-up sent", key=f"dash_fu_{app.id}"):
+                        ok, msg = services.mark_follow_up_sent(app.id)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
+                    if bc2.button("Snooze 2 days", key=f"dash_snooze_{app.id}"):
+                        ok, msg = services.snooze_application_reminder(app.id, 2)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
+                    if bc3.button("Mark reply received", key=f"dash_reply_{app.id}"):
+                        ok, msg = services.mark_reply_received(app.id)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
+                    if bc4.button("Archive", key=f"dash_archive_{app.id}"):
+                        ok, msg = services.archive_application(app.id)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
 
     st.markdown("---")
     st.subheader("Recent offers")
@@ -508,9 +549,9 @@ def _page_offers() -> None:
 def _page_applications() -> None:
     st.title("Applications")
 
-    apps = _safe_load_applications()
+    all_apps = _safe_load_applications()
 
-    if not apps:
+    if not all_apps:
         st.info("No applications yet. The file `data/applications.json` is empty or does not exist.")
         return
 
@@ -518,10 +559,33 @@ def _page_applications() -> None:
 
     status_values = [s.value for s in ApplicationStatus]
 
-    st.subheader(f"Total: {len(apps)}")
+    # ── Filters ──────────────────────────────────────────────────────────────
+    with st.expander("🔍 Filters", expanded=False):
+        fc1, fc2, fc3 = st.columns(3)
+        filter_status = fc1.selectbox(
+            "Status", ["(all)"] + status_values, key="app_filter_status"
+        )
+        filter_due_only = fc2.checkbox("Due follow-ups only", key="app_filter_due")
+        filter_company = fc3.text_input("Company contains", key="app_filter_company")
+
+    now = datetime.now(UTC)
+    from cv_sender.follow_up import is_follow_up_due  # noqa: PLC0415
+
+    def _matches(a: Application) -> bool:
+        if filter_status != "(all)" and a.status.value != filter_status:
+            return False
+        if filter_due_only and not is_follow_up_due(a, now):
+            return False
+        if filter_company and filter_company.lower() not in (a.company or "").lower():
+            return False
+        return True
+
+    apps = [a for a in all_apps if _matches(a)]
+    st.subheader(f"Showing {len(apps)} of {len(all_apps)} applications")
 
     for app in sorted(apps, key=lambda a: a.updated_at, reverse=True):
-        label = f"**{app.title}** — {app.company}  |  {app.status}  |  {app.created_at.date()}"
+        due_badge = " ⏰" if is_follow_up_due(app, now) else ""
+        label = f"**{app.title}** — {app.company}  |  {app.status}{due_badge}  |  {app.created_at.date()}"
         with st.expander(label):
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"**Source:** {app.source or '—'}")
@@ -536,6 +600,15 @@ def _page_applications() -> None:
             if app.url:
                 st.markdown(f"[Offer URL]({app.url})")
 
+            # Follow-up tracking info
+            if app.sent_at or app.follow_up_due_at or app.next_action_at:
+                fi1, fi2, fi3, fi4 = st.columns(4)
+                fi1.caption(f"Sent: {app.sent_at.strftime('%Y-%m-%d') if app.sent_at else '—'}")
+                fi2.caption(f"Follow-up due: {app.follow_up_due_at.strftime('%Y-%m-%d') if app.follow_up_due_at else '—'}")
+                fi3.caption(f"Next action: {app.next_action_at.strftime('%Y-%m-%d') if app.next_action_at else '—'} ({app.next_action_type or '—'})")
+                fi4.caption(f"Last contact: {app.last_contact_at.strftime('%Y-%m-%d') if app.last_contact_at else '—'}")
+
+            # ── Status/notes form ─────────────────────────────────────────
             with st.form(key=f"app_form_{app.id}"):
                 new_status = st.selectbox(
                     "Status",
@@ -560,22 +633,85 @@ def _page_applications() -> None:
                 st.success("Saved.")
                 st.rerun()
 
+            # ── Quick action buttons ──────────────────────────────────────
+            st.markdown("**Quick actions:**")
+            qa1, qa2, qa3, qa4 = st.columns(4)
+            qa5, qa6, qa7, qa8 = st.columns(4)
+
+            if qa1.button("Mark as sent", key=f"qa_sent_{app.id}"):
+                ok, msg = services.mark_application_sent(app.id)
+                st.success(msg) if ok else st.error(msg)
+                st.rerun()
+
+            if qa2.button("Follow-up sent", key=f"qa_fu_{app.id}"):
+                ok, msg = services.mark_follow_up_sent(app.id)
+                st.success(msg) if ok else st.error(msg)
+                st.rerun()
+
+            if qa3.button("Reply received", key=f"qa_reply_{app.id}"):
+                ok, msg = services.mark_reply_received(app.id)
+                st.success(msg) if ok else st.error(msg)
+                st.rerun()
+
+            if qa4.button("Snooze 2 days", key=f"qa_snooze_{app.id}"):
+                ok, msg = services.snooze_application_reminder(app.id, 2)
+                st.success(msg) if ok else st.error(msg)
+                st.rerun()
+
+            if qa5.button("Mark rejected", key=f"qa_rej_{app.id}"):
+                ok, msg = services.update_application_status(app.id, ApplicationStatus.REJECTED)
+                st.success(msg) if ok else st.error(msg)
+                st.rerun()
+
+            if qa6.button("Mark offer", key=f"qa_offer_{app.id}"):
+                ok, msg = services.update_application_status(app.id, ApplicationStatus.OFFER)
+                st.success(msg) if ok else st.error(msg)
+                st.rerun()
+
+            if qa7.button("Archive", key=f"qa_archive_{app.id}"):
+                ok, msg = services.archive_application(app.id)
+                st.success(msg) if ok else st.error(msg)
+                st.rerun()
+
+            # ── Schedule interview ────────────────────────────────────────
+            with st.expander("📅 Schedule interview", expanded=False):
+                with st.form(key=f"interview_form_{app.id}"):
+                    iv_date = st.date_input("Interview date", key=f"iv_date_{app.id}")
+                    iv_time = st.time_input("Interview time", key=f"iv_time_{app.id}")
+                    iv_note = st.text_input("Note (optional)", key=f"iv_note_{app.id}")
+                    iv_btn = st.form_submit_button("Schedule")
+                if iv_btn:
+                    from datetime import timezone as _tz  # noqa: PLC0415
+                    iv_dt = datetime.combine(iv_date, iv_time, tzinfo=UTC)
+                    ok, msg = services.schedule_interview(app.id, iv_dt, note=iv_note or None)
+                    st.success(msg) if ok else st.error(msg)
+                    st.rerun()
+
+            # ── Follow-up message draft ───────────────────────────────────
+            with st.expander("✉️ Follow-up message draft", expanded=False):
+                msg_text = services.generate_follow_up_message_for(app.id)
+                if msg_text:
+                    st.text_area(
+                        "Copy and send manually",
+                        value=msg_text,
+                        height=150,
+                        key=f"fu_msg_{app.id}",
+                    )
+                else:
+                    st.caption("Application not found.")
+
+            # ── Events timeline ───────────────────────────────────────────
             if app.events:
-                with st.expander("Events"):
+                with st.expander("📋 Events timeline"):
                     for ev in reversed(app.events):
                         st.caption(f"{ev.timestamp.strftime('%Y-%m-%d %H:%M')}  **{ev.event}**  {ev.details}")
 
-            # Show debug artifacts if the most recent fill event has a debug run
+            # ── Debug artifacts ───────────────────────────────────────────
             fill_events = [
                 ev for ev in app.events
                 if ev.event in ("form_filled", "fill_failed", "form_filled_retry", "fill_failed_retry")
             ]
             if fill_events:
-                last_fill = fill_events[-1]
-                # Extract run_id if embedded in details
-                import re as _re
-                run_id_match = _re.search(r'run_id[=:]\s*(\S+)', last_fill.details)
-                # Try loading latest run for this offer
                 runs = services.get_debug_runs(limit=20)
                 matching = [r for r in runs if r.offer_id == app.offer_id]
                 if matching:
@@ -813,6 +949,28 @@ def _page_settings() -> None:
             "General motivation", value=settings.answer_profile.motivation_general, height=80
         )
 
+        st.subheader("Follow-up tracking")
+        fu_enabled = st.checkbox("Enable follow-up reminders", value=settings.follow_up.enabled)
+        fu_days = st.number_input(
+            "Default follow-up after (days)",
+            min_value=1, max_value=30,
+            value=settings.follow_up.default_follow_up_after_days,
+        )
+        fu_no_response = st.number_input(
+            "Mark no-response after (days)",
+            min_value=1, max_value=90,
+            value=settings.follow_up.mark_no_response_after_days,
+        )
+        fu_show_within = st.number_input(
+            "Show due within (days)",
+            min_value=0, max_value=14,
+            value=settings.follow_up.show_due_within_days,
+        )
+        fu_weekends = st.checkbox(
+            "Allow weekend due dates",
+            value=settings.follow_up.allow_weekend_due_dates,
+        )
+
         submitted = st.form_submit_button("Save settings")
 
     if submitted:
@@ -852,6 +1010,13 @@ def _page_settings() -> None:
                 english_level=ap_english,
             ),
             answer_templates=settings.answer_templates,
+            follow_up=FollowUpConfig(
+                enabled=fu_enabled,
+                default_follow_up_after_days=int(fu_days),
+                mark_no_response_after_days=int(fu_no_response),
+                show_due_within_days=int(fu_show_within),
+                allow_weekend_due_dates=fu_weekends,
+            ),
         )
         save_settings(updated)
         st.success("Settings saved to `config/settings.yaml`.")

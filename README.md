@@ -570,3 +570,54 @@ Enable `answers.use_llm: true` in `settings.yaml`. The LLM is called only for qu
 - [x] Save to Job Assistant bookmarklet (local FastAPI receiver)
 - [x] Source-specific offer extractors (RocketJobs, JustJoinIT, NoFluffJobs, Pracuj.pl)
 - [x] CV profiles with automatic per-offer selection
+- [x] Follow-up reminders and application lifecycle tracking
+
+---
+
+## Follow-up tracking
+
+After marking an application as **sent**, the assistant automatically schedules a
+follow-up reminder.
+
+### How due dates are calculated
+
+The due date is computed by adding `default_follow_up_after_days` (default: 5) calendar
+days to `sent_at`. When `allow_weekend_due_dates` is `false` (default), Saturday and
+Sunday are skipped — the date is rolled forward to the next Monday.
+All timestamps are stored in UTC.
+
+### Marking a follow-up sent
+
+Click **"Follow-up sent"** on the application card or in the "Follow-ups due now" panel
+on the dashboard. This sets `status = follow_up_sent` and records `last_contact_at`.
+
+### Snoozing reminders
+
+Click **"Snooze 2 days"** to defer the reminder. The snooze is stored in
+`reminder_snoozed_until`; the application re-appears in the due panel once it expires.
+
+### Stale / no-response detection
+
+Applications in `sent`, `follow_up_due`, or `follow_up_sent` status with no activity
+for `mark_no_response_after_days` (default: 14) days are counted in the Dashboard stale
+metric.
+
+### Emails are never sent automatically
+
+The follow-up message draft shown in the application detail is for **manual use only**.
+Copy and paste it into your email client. The app never sends emails.
+
+### Configuration
+
+```yaml
+follow_up:
+  enabled: true
+  # Days after sending before showing the follow-up reminder
+  default_follow_up_after_days: 5
+  # Days after last contact before marking as "no response / stale"
+  mark_no_response_after_days: 14
+  # How far ahead to show upcoming due reminders in the dashboard
+  show_due_within_days: 3
+  # When false, Saturday/Sunday due dates are moved to the next Monday
+  allow_weekend_due_dates: false
+```

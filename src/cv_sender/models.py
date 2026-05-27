@@ -17,11 +17,15 @@ class ApplicationStatus(StrEnum):
     SKIPPED = "skipped"
     READY_TO_SEND = "ready_to_send"
     SENT = "sent"
-    FAILED = "failed"
+    FOLLOW_UP_DUE = "follow_up_due"
+    FOLLOW_UP_SENT = "follow_up_sent"
     REPLY_RECEIVED = "reply_received"
     INTERVIEW = "interview"
     REJECTED = "rejected"
     OFFER = "offer"
+    NO_RESPONSE = "no_response"
+    ARCHIVED = "archived"
+    FAILED = "failed"
 
 
 class Decision(StrEnum):
@@ -186,3 +190,16 @@ class Application(BaseModel):
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
     events: list[ApplicationEvent] = Field(default_factory=list)
+    # Follow-up tracking fields (optional; None when not yet set)
+    sent_at: datetime | None = None
+    follow_up_due_at: datetime | None = None
+    follow_up_sent_at: datetime | None = None
+    last_contact_at: datetime | None = None
+    next_action_at: datetime | None = None
+    next_action_type: str = ""        # "follow_up" | "interview" | ""
+    next_action_note: str = ""
+    interview_at: datetime | None = None
+    company_contact_name: str = ""
+    company_contact_email: str = ""
+    outcome: str = ""                 # free-text outcome note
+    reminder_snoozed_until: datetime | None = None
