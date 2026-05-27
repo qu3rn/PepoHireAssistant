@@ -33,6 +33,7 @@ htmlcov/
 data/offers.json
 data/applications.json
 data/email_matches.json
+data/interviews.json
 
 # Local config (keep example files)
 config/profile.yaml
@@ -41,6 +42,7 @@ config/settings.yaml
 # Google OAuth credentials and tokens (NEVER commit)
 config/google_credentials.json
 config/google_token.json
+config/google_calendar_token.json
 
 # CV files
 *.pdf

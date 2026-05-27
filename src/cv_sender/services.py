@@ -1209,3 +1209,56 @@ def get_matches_for_application(app_id: str) -> list:
     matches = load_email_matches()
     app_matches = [m for m in matches if m.application_id == app_id]
     return sorted(app_matches, key=lambda m: m.received_at, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Interview helpers (thin re-exports from interviews module)
+# ---------------------------------------------------------------------------
+
+
+def create_interview(
+    application_id: str,
+    interview_data: dict,
+    create_calendar_event: bool = False,
+):
+    from cv_sender.interviews import create_interview as _create  # noqa: PLC0415
+    return _create(application_id, interview_data, create_calendar_event)
+
+
+def schedule_interview_from_email_match(
+    match_id: str,
+    interview_data: dict,
+    create_calendar_event: bool = False,
+):
+    from cv_sender.interviews import schedule_interview_from_email_match as _schedule  # noqa: PLC0415
+    return _schedule(match_id, interview_data, create_calendar_event)
+
+
+def list_upcoming_interviews(now=None):
+    from cv_sender.interviews import list_upcoming_interviews as _list  # noqa: PLC0415
+    return _list(now)
+
+
+def list_past_interviews(now=None):
+    from cv_sender.interviews import list_past_interviews as _list  # noqa: PLC0415
+    return _list(now)
+
+
+def mark_interview_completed(interview_id: str):
+    from cv_sender.interviews import mark_interview_completed as _mark  # noqa: PLC0415
+    return _mark(interview_id)
+
+
+def cancel_interview(interview_id: str):
+    from cv_sender.interviews import cancel_interview as _cancel  # noqa: PLC0415
+    return _cancel(interview_id)
+
+
+def reschedule_interview(interview_id: str, new_datetime, update_calendar: bool = False):
+    from cv_sender.interviews import reschedule_interview as _reschedule  # noqa: PLC0415
+    return _reschedule(interview_id, new_datetime, update_calendar)
+
+
+def get_interview_for_application(app_id: str):
+    from cv_sender.interviews import get_interview_for_application as _get  # noqa: PLC0415
+    return _get(app_id)

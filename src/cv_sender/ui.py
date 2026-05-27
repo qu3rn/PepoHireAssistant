@@ -20,6 +20,7 @@ st.set_page_config(
 from cv_sender.config import (  # noqa: E402  (after set_page_config)
     AnswerGenerationConfig,
     AnswerProfileConfig,
+    CalendarConfig,
     FollowUpConfig,
     GmailConfig,
     LMStudioConfig,
@@ -35,6 +36,9 @@ from cv_sender.models import (  # noqa: E402
     ApplicationStatus,
     Decision,
     FillStatus,
+    Interview,
+    InterviewStatus,
+    InterviewType,
     Offer,
 )
 from cv_sender.storage import (  # noqa: E402
@@ -48,7 +52,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Bookmarklet", "Debug"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Bookmarklet", "Debug"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -249,6 +253,35 @@ def _page_dashboard() -> None:
                         ok, msg = services.archive_application(app.id)
                         st.success(msg) if ok else st.error(msg)
                         st.rerun()
+
+    st.markdown("---")
+
+    # Upcoming interviews panel
+    upcoming = services.list_upcoming_interviews()
+    if upcoming:
+        st.subheader(f"📅 Upcoming interviews ({len(upcoming)})")
+        for iv in sorted(upcoming, key=lambda i: i.interview_at):
+            iv_dt = iv.interview_at.strftime("%Y-%m-%d %H:%M")
+            with st.expander(f"**{iv.company}** — {iv.title}  |  {iv_dt}", expanded=False):
+                ic1, ic2, ic3 = st.columns(3)
+                ic1.caption(f"Type: {iv.interview_type}")
+                ic2.caption(f"Duration: {iv.duration_minutes} min")
+                ic3.caption(f"Source: {iv.source}")
+                if iv.meeting_url:
+                    st.caption(f"Meeting URL: {iv.meeting_url}")
+                if iv.location:
+                    st.caption(f"Location: {iv.location}")
+                if iv.notes:
+                    st.caption(f"Notes: {iv.notes}")
+                bc1, bc2 = st.columns(2)
+                if bc1.button("Mark completed", key=f"dash_iv_done_{iv.id}"):
+                    ok, msg = services.mark_interview_completed(iv.id)
+                    st.success(msg) if ok else st.error(msg)
+                    st.rerun()
+                if bc2.button("Cancel", key=f"dash_iv_cancel_{iv.id}"):
+                    ok, msg = services.cancel_interview(iv.id)
+                    st.success(msg) if ok else st.error(msg)
+                    st.rerun()
 
     st.markdown("---")
     st.subheader("Recent offers")
@@ -1021,6 +1054,30 @@ def _page_settings() -> None:
             value=settings.gmail.auto_update_status,
         )
 
+        st.subheader("Google Calendar")
+        cal_enabled = st.checkbox("Enable Calendar integration", value=settings.calendar.enabled)
+        cal_creds = st.text_input(
+            "Credentials file path (same as Gmail)", value=settings.calendar.credentials_path
+        )
+        cal_token = st.text_input("Calendar token file path", value=settings.calendar.token_path)
+        cc1, cc2 = st.columns(2)
+        cal_calendar_id = cc1.text_input("Calendar ID", value=settings.calendar.calendar_id)
+        cal_tz = cc2.text_input("Timezone", value=settings.calendar.timezone)
+        cc3, cc4 = st.columns(2)
+        cal_duration = cc3.number_input(
+            "Default interview duration (min)",
+            min_value=15, max_value=480,
+            value=settings.calendar.default_interview_duration_minutes,
+        )
+        cal_create_events = cc4.checkbox(
+            "Allow creating calendar events", value=settings.calendar.create_calendar_events
+        )
+        cal_reminders = st.checkbox("Add reminders", value=settings.calendar.add_reminders)
+        cal_reminder_raw = st.text_input(
+            "Reminder minutes before (comma-separated)",
+            value=", ".join(str(m) for m in settings.calendar.reminder_minutes_before),
+        )
+
         submitted = st.form_submit_button("Save settings")
 
     if submitted:
@@ -1077,6 +1134,19 @@ def _page_settings() -> None:
                 store_snippet=gm_store_snippet,
                 store_email_body=gm_store_body,
                 auto_update_status=gm_auto_update,
+            ),
+            calendar=CalendarConfig(
+                enabled=cal_enabled,
+                credentials_path=cal_creds,
+                token_path=cal_token,
+                calendar_id=cal_calendar_id,
+                timezone=cal_tz,
+                default_interview_duration_minutes=int(cal_duration),
+                create_calendar_events=cal_create_events,
+                add_reminders=cal_reminders,
+                reminder_minutes_before=[
+                    int(x.strip()) for x in cal_reminder_raw.split(",") if x.strip().isdigit()
+                ] or [1440, 60],
             ),
         )
         save_settings(updated)
@@ -1248,6 +1318,139 @@ The token is saved to `{cfg.token_path}` and reused for future scans.
 
 
 # ---------------------------------------------------------------------------
+# Interviews page
+# ---------------------------------------------------------------------------
+
+
+def _page_interviews() -> None:
+    st.title("Interviews")
+
+    tab_upcoming, tab_past, tab_new = st.tabs(["Upcoming", "Past", "Schedule new"])
+
+    with tab_upcoming:
+        upcoming = services.list_upcoming_interviews()
+        if not upcoming:
+            st.info("No upcoming interviews.")
+        else:
+            for iv in sorted(upcoming, key=lambda i: i.interview_at):
+                iv_dt = iv.interview_at.strftime("%Y-%m-%d %H:%M")
+                with st.expander(
+                    f"**{iv.company}** — {iv.title}  |  {iv_dt}  |  _{iv.interview_type}_",
+                    expanded=True,
+                ):
+                    c1, c2, c3 = st.columns(3)
+                    c1.write(f"**Duration:** {iv.duration_minutes} min")
+                    c2.write(f"**Status:** {iv.status}")
+                    c3.write(f"**Source:** {iv.source}")
+                    if iv.meeting_url:
+                        st.write(f"**Meeting URL:** {iv.meeting_url}")
+                    if iv.location:
+                        st.write(f"**Location:** {iv.location}")
+                    if iv.participants:
+                        st.write(f"**Participants:** {', '.join(iv.participants)}")
+                    if iv.notes:
+                        st.write(f"**Notes:** {iv.notes}")
+                    if iv.calendar_event_id:
+                        st.caption(f"Calendar event: {iv.calendar_event_id}")
+
+                    bc1, bc2, bc3 = st.columns(3)
+                    if bc1.button("✅ Completed", key=f"iv_done_{iv.id}"):
+                        ok, msg = services.mark_interview_completed(iv.id)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
+                    if bc2.button("❌ Cancel", key=f"iv_cancel_{iv.id}"):
+                        ok, msg = services.cancel_interview(iv.id)
+                        st.success(msg) if ok else st.error(msg)
+                        st.rerun()
+
+                    with bc3.expander("Reschedule"):
+                        new_dt = st.datetime_input(
+                            "New datetime", value=iv.interview_at, key=f"iv_reschedule_dt_{iv.id}"
+                        )
+                        update_cal = st.checkbox(
+                            "Update calendar event", value=False, key=f"iv_reschedule_cal_{iv.id}"
+                        )
+                        if st.button("Confirm reschedule", key=f"iv_reschedule_btn_{iv.id}"):
+                            ok, msg = services.reschedule_interview(iv.id, new_dt, update_cal)
+                            st.success(msg) if ok else st.error(msg)
+                            st.rerun()
+
+    with tab_past:
+        past = services.list_past_interviews()
+        if not past:
+            st.info("No past interviews recorded.")
+        else:
+            import pandas as pd  # noqa: PLC0415
+
+            rows = [
+                {
+                    "Company": i.company,
+                    "Role": i.title,
+                    "Date": i.interview_at.strftime("%Y-%m-%d %H:%M"),
+                    "Type": str(i.interview_type),
+                    "Status": str(i.status),
+                    "Source": i.source,
+                }
+                for i in sorted(past, key=lambda i: i.interview_at, reverse=True)
+            ]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tab_new:
+        st.subheader("Schedule a new interview")
+        settings = load_settings()
+        apps = _safe_load_applications()
+        app_options = {f"{a.company} — {a.title} ({a.id[:8]})": a.id for a in apps}
+        if not app_options:
+            st.warning("No applications found. Add one first.")
+        else:
+            with st.form("new_interview_form", clear_on_submit=True):
+                selected_label = st.selectbox("Application", list(app_options.keys()))
+                iv_dt_new = st.datetime_input(
+                    "Interview date & time",
+                    value=datetime.now(UTC).replace(minute=0, second=0, microsecond=0),
+                )
+                nc1, nc2 = st.columns(2)
+                iv_duration = nc1.number_input(
+                    "Duration (min)",
+                    min_value=15, max_value=480,
+                    value=settings.calendar.default_interview_duration_minutes,
+                )
+                iv_type = nc2.selectbox(
+                    "Interview type",
+                    [t.value for t in InterviewType],
+                    index=list(InterviewType).index(InterviewType.UNKNOWN),
+                )
+                iv_url = st.text_input("Meeting URL", placeholder="https://meet.google.com/...")
+                iv_location = st.text_input("Location / address", placeholder="Optional")
+                iv_notes = st.text_area("Notes", height=80)
+                iv_create_cal = st.checkbox(
+                    "Create Google Calendar event",
+                    value=False,
+                    disabled=not settings.calendar.create_calendar_events,
+                    help="Requires calendar integration to be enabled with create_calendar_events=true",
+                )
+                form_submitted = st.form_submit_button("Schedule interview")
+
+            if form_submitted:
+                app_id = app_options[selected_label]
+                data = {
+                    "interview_at": iv_dt_new,
+                    "duration_minutes": int(iv_duration),
+                    "interview_type": InterviewType(iv_type),
+                    "meeting_url": iv_url.strip(),
+                    "location": iv_location.strip(),
+                    "notes": iv_notes.strip(),
+                    "source": "manual",
+                }
+                ok, msg, iv = services.create_interview(app_id, data, iv_create_cal)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+                st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Bookmarklet page
 # ---------------------------------------------------------------------------
 
@@ -1405,6 +1608,8 @@ elif page == "Settings":
     _page_settings()
 elif page == "Gmail":
     _page_gmail()
+elif page == "Interviews":
+    _page_interviews()
 elif page == "Bookmarklet":
     _page_bookmarklet()
 elif page == "Debug":
