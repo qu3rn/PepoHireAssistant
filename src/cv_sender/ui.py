@@ -52,7 +52,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Rapid Apply", "Campaigns", "Bookmarklet", "Debug"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Rapid Apply", "Campaigns", "Bookmarklet", "Debug", "Data Cleanup"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -2979,10 +2979,321 @@ def _page_debug() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Data Cleanup page
+# ---------------------------------------------------------------------------
+
+
+def _page_data_cleanup() -> None:  # noqa: PLR0912, PLR0915
+    """Bulk delete and cleanup tools for offers and related data."""
+    import pandas as pd  # noqa: PLC0415
+
+    from cv_sender.cleanup import (  # noqa: PLC0415
+        BulkDeleteResult,
+        OfferDeleteFilters,
+        RelatedCleanupOptions,
+        clear_apply_queue,
+        clear_collection_diagnostics,
+        clear_debug_data,
+        delete_all_offers,
+        delete_offers,
+        delete_offers_by_filter,
+        dev_cleanup,
+        preview_offers_by_filter,
+    )
+
+    st.title("🗑️ Data Cleanup")
+    st.caption(
+        "Bulk delete offers and related data.  "
+        "A backup is created automatically before every destructive action."
+    )
+
+    offers = _safe_load_offers()
+
+    # --- shared option widgets -------------------------------------------------
+
+    def _options_form(key_prefix: str) -> RelatedCleanupOptions:
+        col1, col2, col3, col4 = st.columns(4)
+        q = col1.checkbox("Delete related queue items", value=True, key=f"{key_prefix}_queue")
+        qr = col2.checkbox("Delete related quality reports", value=True, key=f"{key_prefix}_qr")
+        apps = col3.checkbox(
+            "Delete related applications",
+            value=False,
+            key=f"{key_prefix}_apps",
+            help="⚠️ This will delete sent application history. Off by default.",
+        )
+        dbg = col4.checkbox("Delete debug runs", value=False, key=f"{key_prefix}_debug")
+        return RelatedCleanupOptions(
+            delete_queue_items=q,
+            delete_quality_reports=qr,
+            delete_applications=apps,
+            delete_debug_runs=dbg,
+        )
+
+    def _backup_checkbox(key: str) -> bool:
+        return st.checkbox("Create backup before deleting", value=True, key=key)
+
+    def _show_bulk_result(result: BulkDeleteResult) -> None:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Deleted", result.deleted_count)
+        col2.metric("Not found", result.not_found_count)
+        col3.metric("Failed", result.failed_count)
+        col4.metric("Requested", result.requested_count)
+        if result.backup_path:
+            st.info(f"Backup saved to: `{result.backup_path}`")
+        for err in result.errors:
+            st.error(err)
+
+    # ==========================================================================
+    # Section 1 — Bulk delete selected offers
+    # ==========================================================================
+    st.header("1 · Delete selected offers")
+
+    if not offers:
+        st.info("No offers in storage.")
+    else:
+        df_rows = [
+            {
+                "id": o.id,
+                "company": o.company,
+                "title": o.title,
+                "source": o.source,
+                "decision": str(o.decision or ""),
+                "score": o.score,
+                "created_at": o.created_at.strftime("%Y-%m-%d") if o.created_at else "",
+                "url": o.url,
+            }
+            for o in offers
+        ]
+        df = pd.DataFrame(df_rows)
+        edited = st.data_editor(
+            df,
+            column_config={
+                "id": st.column_config.TextColumn("ID", width="small"),
+                "company": st.column_config.TextColumn("Company"),
+                "title": st.column_config.TextColumn("Title"),
+                "source": st.column_config.TextColumn("Source", width="small"),
+                "decision": st.column_config.TextColumn("Decision", width="small"),
+                "score": st.column_config.NumberColumn("Score", width="small"),
+                "created_at": st.column_config.TextColumn("Created", width="small"),
+                "url": st.column_config.LinkColumn("URL"),
+            },
+            use_container_width=True,
+            hide_index=False,
+            num_rows="dynamic",
+            key="cleanup_offer_table",
+        )
+
+        selected_indices: list[int] = []
+        table_state = st.session_state.get("cleanup_offer_table", {})
+        edited_rows = table_state.get("edited_rows", {})
+        deleted_rows = table_state.get("deleted_rows", [])
+        # Rows deleted via the data_editor trash icon are in deleted_rows
+        selected_indices = list(deleted_rows)
+
+        sel_ids: list[str] = []
+        if selected_indices:
+            sel_ids = [df.iloc[i]["id"] for i in selected_indices if i < len(df)]
+
+        if sel_ids:
+            st.info(f"{len(sel_ids)} offer(s) selected via table row deletion.")
+        else:
+            st.caption("To select offers for deletion, use the trash icon on table rows.")
+
+        bulk_opts = _options_form("sel")
+        bulk_backup = _backup_checkbox("sel_backup")
+        bulk_confirm = st.checkbox(
+            "✅ I understand this will permanently delete the selected offers",
+            key="sel_confirm",
+        )
+
+        if st.button("🗑️ Delete selected offers", disabled=not sel_ids or not bulk_confirm):
+            with st.spinner("Deleting…"):
+                res = delete_offers(
+                    sel_ids,
+                    options=bulk_opts,
+                    create_backup=bulk_backup,
+                    backup_reason="bulk_delete_selected",
+                )
+            st.success(f"Done. {res.deleted_count} offer(s) deleted.")
+            _show_bulk_result(res)
+            st.rerun()
+
+    st.divider()
+
+    # ==========================================================================
+    # Section 2 — Delete by filter
+    # ==========================================================================
+    st.header("2 · Delete by filter")
+
+    all_sources = sorted({o.source for o in offers if o.source})
+    all_decisions = sorted({str(o.decision) for o in offers if o.decision})
+
+    fc1, fc2, fc3 = st.columns(3)
+    flt_source = fc1.selectbox("Source", [""] + all_sources, key="flt_source", index=0)
+    flt_decision = fc2.selectbox("Decision", [""] + all_decisions, key="flt_decision", index=0)
+    flt_text = fc3.text_input("Search text (title / company)", key="flt_text")
+
+    fc4, fc5, fc6 = st.columns(3)
+    flt_score = fc4.number_input(
+        "Score below (0 = not used)", min_value=0, max_value=100, value=0, step=1, key="flt_score"
+    )
+    flt_dev = fc5.checkbox("Dev / test offers only", key="flt_dev")
+    flt_before = fc6.date_input("Created before (optional)", value=None, key="flt_before")
+
+    flt_filters = OfferDeleteFilters(
+        source=flt_source,
+        decision=flt_decision,
+        search_text=flt_text,
+        score_below=int(flt_score) if flt_score > 0 else None,
+        dev_only=flt_dev,
+        max_created_at=(
+            datetime.combine(flt_before, datetime.min.time()).replace(tzinfo=UTC)
+            if flt_before
+            else None
+        ),
+    )
+
+    if st.button("🔍 Preview matching offers", key="flt_preview"):
+        matches = preview_offers_by_filter(flt_filters)
+        if not matches:
+            st.warning("No offers match these filters.")
+        else:
+            st.success(f"{len(matches)} offer(s) match the filter.")
+            preview_df = pd.DataFrame(
+                [
+                    {
+                        "id": m.get("id", "")[:8],
+                        "company": m.get("company", ""),
+                        "title": m.get("title", ""),
+                        "source": m.get("source", ""),
+                        "score": m.get("score"),
+                        "decision": m.get("decision", ""),
+                        "created_at": (m.get("created_at") or "")[:10],
+                    }
+                    for m in matches
+                ]
+            )
+            st.dataframe(preview_df, use_container_width=True, hide_index=True)
+            st.session_state["flt_preview_count"] = len(matches)
+
+    flt_opts = _options_form("flt")
+    flt_backup = _backup_checkbox("flt_backup")
+    flt_confirm = st.checkbox(
+        "✅ I understand this will permanently delete all matching offers",
+        key="flt_confirm",
+    )
+    preview_count = st.session_state.get("flt_preview_count", 0)
+
+    if st.button(
+        f"🗑️ Delete matching offers ({preview_count} previewed)",
+        disabled=preview_count == 0 or not flt_confirm,
+        key="flt_delete",
+    ):
+        with st.spinner("Deleting…"):
+            res = delete_offers_by_filter(flt_filters, options=flt_opts, create_backup=flt_backup)
+        st.success(f"Done. {res.deleted_count} offer(s) deleted.")
+        _show_bulk_result(res)
+        st.session_state["flt_preview_count"] = 0
+        st.rerun()
+
+    st.divider()
+
+    # ==========================================================================
+    # Section 3 — Danger zone
+    # ==========================================================================
+    st.header("3 · Danger zone")
+
+    with st.expander("⚠️ Expand danger zone", expanded=False):
+
+        # -- Delete all offers -------------------------------------------------
+        st.subheader("Delete ALL offers")
+        st.warning(
+            "This will delete every offer in storage.  "
+            "A backup will be created first unless you uncheck it."
+        )
+        dz_opts = _options_form("dz")
+        dz_backup = _backup_checkbox("dz_backup")
+        dz_typed = st.text_input(
+            'Type **DELETE OFFERS** to confirm', key="dz_typed", placeholder="DELETE OFFERS"
+        )
+        if st.button("🗑️ Delete ALL offers", disabled=dz_typed.strip() != "DELETE OFFERS"):
+            with st.spinner("Deleting all offers…"):
+                res = delete_all_offers(options=dz_opts, create_backup=dz_backup)
+            st.success(f"Done. {res.deleted_count} offer(s) deleted.")
+            _show_bulk_result(res)
+            st.rerun()
+
+        st.divider()
+
+        # -- Clear apply queue -------------------------------------------------
+        st.subheader("Clear apply queue")
+        cq_backup = _backup_checkbox("cq_backup")
+        cq_confirm = st.checkbox("✅ I understand this will clear the queue", key="cq_confirm")
+        if st.button("🗑️ Clear apply queue", disabled=not cq_confirm):
+            with st.spinner("Clearing…"):
+                res = clear_apply_queue(create_backup=cq_backup)
+            st.success(f"Done. {res.deleted_count} queue item(s) removed.")
+            _show_bulk_result(res)
+
+        st.divider()
+
+        # -- Clear collection diagnostics --------------------------------------
+        st.subheader("Clear collection diagnostics")
+        cd_backup = _backup_checkbox("cd_backup")
+        cd_confirm = st.checkbox(
+            "✅ I understand this will clear diagnostics history", key="cd_confirm"
+        )
+        if st.button("🗑️ Clear collection diagnostics", disabled=not cd_confirm):
+            with st.spinner("Clearing…"):
+                res = clear_collection_diagnostics(create_backup=cd_backup)
+            st.success(f"Done. {res.deleted_count} diagnostic run(s) removed.")
+            _show_bulk_result(res)
+
+        st.divider()
+
+        # -- Clear debug data --------------------------------------------------
+        st.subheader("Clear debug data")
+        st.caption("Removes form-filling debug run directories from data/debug/.")
+        dbg_confirm = st.checkbox(
+            "✅ I understand this will remove debug artifacts", key="dbg_confirm"
+        )
+        if st.button("🗑️ Clear debug data", disabled=not dbg_confirm):
+            with st.spinner("Clearing…"):
+                res = clear_debug_data()
+            st.success(f"Done. {res.deleted_count} debug run(s) removed.")
+            _show_bulk_result(res)
+
+        st.divider()
+
+        # -- Full dev cleanup --------------------------------------------------
+        st.subheader("Full dev cleanup")
+        st.warning(
+            "Deletes **dev/test offers**, clears the apply queue, clears "
+            "collection diagnostics.  Applications are NOT deleted by default."
+        )
+        devclean_opts = _options_form("devclean")
+        devclean_backup = _backup_checkbox("devclean_backup")
+        devclean_typed = st.text_input(
+            'Type **DEV CLEANUP** to confirm', key="devclean_typed", placeholder="DEV CLEANUP"
+        )
+        if st.button(
+            "🧹 Full dev cleanup", disabled=devclean_typed.strip() != "DEV CLEANUP"
+        ):
+            with st.spinner("Running dev cleanup…"):
+                results = dev_cleanup(options=devclean_opts, create_backup=devclean_backup)
+            st.success("Dev cleanup complete.")
+            for op_name, op_res in results.items():
+                with st.expander(f"{op_name}: {op_res.deleted_count} deleted", expanded=False):
+                    _show_bulk_result(op_res)
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
 
 if page == "Dashboard":
+    _page_dashboard()
     _page_dashboard()
 elif page == "Offers":
     _page_offers()
@@ -3008,3 +3319,5 @@ elif page == "Bookmarklet":
     _page_bookmarklet()
 elif page == "Debug":
     _page_debug()
+elif page == "Data Cleanup":
+    _page_data_cleanup()

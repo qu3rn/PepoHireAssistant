@@ -585,5 +585,148 @@ def _ensure_dir(name: str) -> None:
     Path(name).mkdir(parents=True, exist_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# cleanup  (sub-app)
+# ---------------------------------------------------------------------------
+
+_cleanup_app = typer.Typer(
+    name="cleanup",
+    help="Bulk delete offers and dev data.",
+    add_completion=False,
+)
+app.add_typer(_cleanup_app, name="cleanup")
+
+
+@_cleanup_app.command(name="offers")
+def cleanup_offers(
+    all_offers: bool = typer.Option(False, "--all", help="Delete ALL offers."),
+    source: str = typer.Option("", "--source", "-s", help="Delete offers from this source."),
+    dev_only: bool = typer.Option(False, "--dev-only", help="Delete dev/test offers only."),
+    score_below: int = typer.Option(0, "--score-below", help="Delete offers with score < N (0 = disabled)."),
+    delete_applications: bool = typer.Option(
+        False, "--delete-applications", help="Also delete related applications (dangerous)."
+    ),
+    no_backup: bool = typer.Option(False, "--no-backup", help="Skip backup (not recommended)."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm deletion without prompting."),
+) -> None:
+    """Delete offers by filter.  Requires --yes to proceed."""
+    from cv_sender.cleanup import (  # noqa: PLC0415
+        OfferDeleteFilters,
+        RelatedCleanupOptions,
+        delete_all_offers,
+        delete_offers_by_filter,
+        preview_offers_by_filter,
+    )
+
+    if not any([all_offers, source, dev_only, score_below]):
+        rprint("[yellow]Specify at least one of --all, --source, --dev-only, --score-below.[/yellow]")
+        raise typer.Exit(1)
+
+    opts = RelatedCleanupOptions(
+        delete_queue_items=True,
+        delete_quality_reports=True,
+        delete_applications=delete_applications,
+        delete_debug_runs=False,
+    )
+
+    if all_offers:
+        from cv_sender.storage import load_offers  # noqa: PLC0415
+        count = len(load_offers())
+        if not yes:
+            rprint(f"[yellow]Would delete ALL {count} offers.[/yellow]")
+            rprint("Re-run with [bold]--yes[/bold] to confirm.")
+            raise typer.Exit(0)
+        with rprint.__module__ and True:  # just a no-op to allow the block
+            pass
+        result = delete_all_offers(opts, create_backup=not no_backup)
+    else:
+        filters = OfferDeleteFilters(
+            source=source,
+            dev_only=dev_only,
+            score_below=int(score_below) if score_below > 0 else None,
+        )
+        matching = preview_offers_by_filter(filters)
+        if not matching:
+            rprint("[yellow]No offers match the specified filters. Nothing deleted.[/yellow]")
+            raise typer.Exit(0)
+        if not yes:
+            rprint(f"[yellow]Would delete {len(matching)} matching offers:[/yellow]")
+            for o in matching[:10]:
+                rprint(f"  • {o.get('title', '?')} @ {o.get('company', '?')} [{o.get('source', '?')}]")
+            if len(matching) > 10:
+                rprint(f"  … and {len(matching) - 10} more")
+            rprint("Re-run with [bold]--yes[/bold] to confirm.")
+            raise typer.Exit(0)
+        result = delete_offers_by_filter(filters, options=opts, create_backup=not no_backup)
+
+    rprint(f"[green]Deleted:[/green] {result.deleted_count}  "
+           f"[yellow]Not found:[/yellow] {result.not_found_count}  "
+           f"[red]Failed:[/red] {result.failed_count}")
+    if result.backup_path:
+        rprint(f"Backup: {result.backup_path}")
+    for err in result.errors:
+        rprint(f"[red]Error:[/red] {err}")
+
+
+@_cleanup_app.command(name="queue")
+def cleanup_queue(
+    no_backup: bool = typer.Option(False, "--no-backup"),
+    yes: bool = typer.Option(False, "--yes", "-y"),
+) -> None:
+    """Clear the entire apply queue."""
+    from cv_sender.cleanup import clear_apply_queue  # noqa: PLC0415
+    from cv_sender.storage import load_apply_queue  # noqa: PLC0415
+
+    count = len(load_apply_queue())
+    if not yes:
+        rprint(f"[yellow]Would clear {count} queue item(s).[/yellow]")
+        rprint("Re-run with [bold]--yes[/bold] to confirm.")
+        raise typer.Exit(0)
+
+    result = clear_apply_queue(create_backup=not no_backup)
+    rprint(f"[green]Queue cleared:[/green] {result.deleted_count} item(s) removed.")
+    if result.backup_path:
+        rprint(f"Backup: {result.backup_path}")
+
+
+@_cleanup_app.command(name="dev-data")
+def cleanup_dev_data(
+    delete_applications: bool = typer.Option(
+        False, "--delete-applications", help="Also delete related applications (dangerous)."
+    ),
+    no_backup: bool = typer.Option(False, "--no-backup"),
+    yes: bool = typer.Option(False, "--yes", "-y"),
+) -> None:
+    """Delete dev/test offers, clear queue, clear diagnostics, and optionally debug data."""
+    from cv_sender.cleanup import (  # noqa: PLC0415
+        OfferDeleteFilters,
+        RelatedCleanupOptions,
+        dev_cleanup,
+        preview_offers_by_filter,
+    )
+
+    dev_matches = preview_offers_by_filter(OfferDeleteFilters(dev_only=True))
+
+    if not yes:
+        rprint(f"[yellow]Dev cleanup preview:[/yellow]")
+        rprint(f"  Dev/test offers to delete : {len(dev_matches)}")
+        rprint("  Apply queue               : will be cleared")
+        rprint("  Collection diagnostics    : will be cleared")
+        rprint("Re-run with [bold]--yes[/bold] to confirm.")
+        raise typer.Exit(0)
+
+    opts = RelatedCleanupOptions(
+        delete_queue_items=True,
+        delete_quality_reports=True,
+        delete_applications=delete_applications,
+        delete_debug_runs=False,
+    )
+
+    results = dev_cleanup(options=opts, create_backup=not no_backup)
+    for name, res in results.items():
+        rprint(f"  {name}: [green]{res.deleted_count}[/green] deleted"
+               + (f"  backup={res.backup_path}" if res.backup_path else ""))
+
+
 if __name__ == "__main__":
     app()

@@ -1213,3 +1213,117 @@ The file keeps at most **20 runs**; older runs are evicted automatically.
 - The diagnostics report reflects the state at collection time; if you later change your criteria,
   historical reports are not retroactively updated.
 - `force_import` does not re-run extraction — it uses the raw data already collected.
+
+---
+
+## Data Cleanup
+
+During development and testing it is common to accumulate fake or unwanted offers.
+The **Data Cleanup** page (sidebar → _Data Cleanup_) and the `cv-sender cleanup` CLI commands
+let you delete offers safely.
+
+### Bulk delete selected offers (UI)
+
+1. Open **Data Cleanup** in the sidebar.
+2. In **Section 1**, click the trash icon on any row in the offers table to mark it for deletion.
+3. Tick the confirmation checkbox.
+4. Click **Delete selected offers**.
+
+A backup is created automatically before deletion (unless you uncheck the option).
+
+### Delete by filter (UI)
+
+1. Open **Data Cleanup → Section 2**.
+2. Set one or more filters (source, decision, score, text search, created-before date, dev/test only).
+3. Click **Preview matching offers** to see what would be deleted.
+4. Tick the confirmation checkbox, then click **Delete matching offers**.
+
+### Danger zone (UI)
+
+Expand **Section 3** to access:
+
+| Action | Typed confirmation required |
+|---|---|
+| Delete ALL offers | `DELETE OFFERS` |
+| Clear apply queue | checkbox only |
+| Clear collection diagnostics | checkbox only |
+| Clear debug data | checkbox only |
+| Full dev cleanup | `DEV CLEANUP` |
+
+**Full dev cleanup** deletes dev/test offers, clears the apply queue, and clears collection
+diagnostics in one shot.  Applications are **not** deleted unless you explicitly enable the
+_Delete related applications_ option.
+
+### Related cleanup options
+
+Every delete action exposes four independent toggles:
+
+| Option | Default | Description |
+|---|---|---|
+| Delete related queue items | **on** | Remove apply-queue entries for deleted offers |
+| Delete related quality reports | **on** | Detach campaign-activity references |
+| Delete related applications | **off** | Delete application records linked to deleted offers |
+| Delete debug runs | **off** | Remove form-filling debug run directories |
+
+> ⚠ **Delete related applications** permanently removes sent application history.
+> Leave this off unless you are certain.
+
+### CLI commands
+
+```bash
+# Preview dev/test offers (no deletion)
+cv-sender cleanup offers --dev-only
+
+# Delete dev/test offers (with confirmation)
+cv-sender cleanup offers --dev-only --yes
+
+# Delete offers from a specific source
+cv-sender cleanup offers --source rocketjobs --yes
+
+# Delete all offers
+cv-sender cleanup offers --all --yes
+
+# Clear the apply queue
+cv-sender cleanup queue --yes
+
+# Full dev cleanup (offers + queue + diagnostics)
+cv-sender cleanup dev-data --yes
+```
+
+All destructive CLI commands require `--yes` or they print a preview and exit without deleting.
+
+### How backups work
+
+Before every bulk or all-delete operation, the app copies data files to:
+
+```
+data/backups/YYYYMMDD_HHMMSS_<reason>/
+```
+
+Files backed up: `offers.json`, `applications.json`, `apply_queue.json`,
+`campaigns.json`, `campaign_activities.json`, `collection_diagnostics.json`.
+
+A `metadata.json` file records the timestamp, reason, and operation name.
+
+**To restore from a backup**, copy the files you need back to `data/`:
+
+```bash
+copy data\backups\20260527_120000_bulk_delete\offers.json data\offers.json
+```
+
+### Dev / test offer detection
+
+The heuristic used by `--dev-only` and the UI filter flags an offer as dev/test if:
+
+- `source` is `"dev"`, `"test"`, or `"example"`, **or**
+- title / company contains a whole-word match for `test`, `dev`, `example`, `demo`, `fake`, `dummy`, **or**
+- URL contains `example.com`, `localhost`, `127.0.0.1`, or `/test`.
+
+Real offer titles like "Senior React **Developer**" do **not** match because "dev" is matched as a
+whole word only.
+
+### Backup failure safety
+
+If backup creation fails (e.g. disk full), the delete operation is **aborted** and an error is
+returned.  Pass `--no-backup` (CLI) or uncheck _Create backup before deleting_ (UI) only if you
+are sure you do not need a snapshot.
