@@ -753,3 +753,51 @@ def fill_application_form_retry(
     )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Answer generation
+# ---------------------------------------------------------------------------
+
+_PREVIEW_QUESTIONS = [
+    "Dlaczego chcesz pracować w tej firmie?",
+    "Opisz swoje doświadczenie z technologiami wymaganymi w ofercie.",
+    "Jakie są Twoje oczekiwania finansowe?",
+    "Od kiedy możesz zacząć?",
+]
+
+
+def preview_application_answers(
+    offer_id: str,
+    questions: list[str] | None = None,
+) -> list:
+    """Generate sample answers for *offer_id* without opening a browser.
+
+    Returns a list of :class:`~cv_sender.answers.GeneratedAnswer` objects.
+    Returns an empty list when the offer is not found or answer generation
+    is disabled.
+    """
+    from cv_sender.answers import generate_answers_for_form_questions  # noqa: PLC0415
+
+    offer = get_offer_by_id(offer_id)
+    if offer is None:
+        return []
+
+    settings = load_settings()
+    if not settings.answers.enabled:
+        return []
+
+    profile = load_profile()
+    qs = questions or _PREVIEW_QUESTIONS
+    return generate_answers_for_form_questions(
+        qs,
+        offer,
+        settings.answer_profile,
+        None,
+        settings.answer_templates,
+        settings.answers,
+        settings.lm_studio if settings.answers.use_llm else None,
+        settings_techs=list(settings.technologies),
+        availability_override=profile.availability,
+        notice_period_override=profile.notice_period,
+    )

@@ -28,6 +28,7 @@ class GenericFiller(BasePortalFiller):
         self.fill_portfolio(page)
         self.fill_expected_salary(page)
         self.fill_availability(page)
+        self.fill_textarea_questions(page)
         self.upload_cv(page)
         self.handle_consents(page)
 

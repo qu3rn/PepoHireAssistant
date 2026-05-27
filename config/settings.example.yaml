@@ -57,3 +57,36 @@ form_filling:
   save_form_snapshot: true
   # Save a step-by-step action log (no sensitive field values stored)
   save_step_log: true
+
+# Answer generation settings
+answers:
+  enabled: true
+  use_llm: true
+  auto_fill_generated_answers: true
+  require_review_for_low_confidence: true
+  min_confidence_to_autofill: 0.65
+  max_answer_chars: 600
+
+# Answer profile – facts used to build answers for application form questions
+answer_profile:
+  short_bio: "Frontend developer focused on React, TypeScript and scalable UI architecture."
+  years_experience: "5 years"
+  strongest_skills:
+    - React
+    - TypeScript
+    - Next.js
+  industries:
+    - SaaS
+    - e-commerce
+  work_style: "I value clear communication, ownership and pragmatic engineering."
+  motivation_general: "I am looking for product-focused teams where I can build useful, maintainable frontend applications."
+  salary_b2b: "18000 PLN net + VAT"
+  salary_uop: "15000 PLN gross"
+  english_level: "C1"
+
+# Fill-in-the-blank templates for common question types
+answer_templates:
+  why_company: "I am interested in this role because it matches my experience with {technologies} and gives me a chance to work on {role} challenges."
+  react_experience: "I have practical experience building frontend applications with React, TypeScript and modern UI tooling."
+  availability: "{availability}"
+  salary: "{salary_expectation}"
