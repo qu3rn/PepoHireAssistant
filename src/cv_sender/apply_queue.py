@@ -168,3 +168,86 @@ def get_queue_stats(queue_path: Path | None = None) -> dict[str, int]:
     for item in queue:
         stats[item.status] = stats.get(item.status, 0) + 1
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Session helpers for Rapid Apply
+# ---------------------------------------------------------------------------
+
+# Statuses considered "active" / processable in a session
+_ACTIVE_STATUSES = {
+    ApplyQueueItemStatus.QUEUED,
+    ApplyQueueItemStatus.IN_PROGRESS,
+    ApplyQueueItemStatus.FILLED,
+    ApplyQueueItemStatus.FAILED,
+}
+
+_TERMINAL_STATUSES = {
+    ApplyQueueItemStatus.SENT,
+    ApplyQueueItemStatus.SKIPPED,
+}
+
+
+def get_active_queue_items(
+    queue_path: Path | None = None,
+    *,
+    min_score: int | None = None,
+    source_filter: str | None = None,
+    exclude_failed: bool = False,
+) -> list[ApplyQueueItem]:
+    """Return active queue items sorted by priority_score descending.
+
+    Active = QUEUED, IN_PROGRESS, FILLED, or FAILED (retryable).
+    Optionally filter by minimum score, source, or exclude failed.
+    """
+    queue = load_apply_queue(queue_path)
+    active = []
+    for item in queue:
+        if item.status not in _ACTIVE_STATUSES:
+            continue
+        if exclude_failed and item.status == ApplyQueueItemStatus.FAILED:
+            continue
+        if min_score is not None and (item.score or 0) < min_score:
+            continue
+        if source_filter and item.source != source_filter:
+            continue
+        active.append(item)
+    return sorted(active, key=lambda x: x.priority_score, reverse=True)
+
+
+def get_queue_item_by_offer_id(
+    offer_id: str,
+    queue_path: Path | None = None,
+) -> ApplyQueueItem | None:
+    """Return the active (non-terminal) queue item for *offer_id*, or ``None``."""
+    queue = load_apply_queue(queue_path)
+    matches = [q for q in queue if q.offer_id == offer_id and q.status not in _TERMINAL_STATUSES]
+    return matches[0] if matches else None
+
+
+def advance_session(
+    current_item_id: str,
+    queue_path: Path | None = None,
+    *,
+    min_score: int | None = None,
+    source_filter: str | None = None,
+    exclude_failed: bool = False,
+) -> ApplyQueueItem | None:
+    """Return the next active item after *current_item_id*.
+
+    Does not change any status.  Returns ``None`` when the queue is exhausted.
+    """
+    items = get_active_queue_items(
+        queue_path,
+        min_score=min_score,
+        source_filter=source_filter,
+        exclude_failed=exclude_failed,
+    )
+    ids = [i.id for i in items]
+    try:
+        idx = ids.index(current_item_id)
+    except ValueError:
+        # Current item was removed or moved to terminal — return first available
+        return items[0] if items else None
+    next_idx = idx + 1
+    return items[next_idx] if next_idx < len(items) else None

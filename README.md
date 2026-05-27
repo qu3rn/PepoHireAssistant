@@ -954,3 +954,60 @@ job_search:
 | File | Contents |
 |---|---|
 | `data/apply_queue.json` | The current rapid-apply queue (auto-generated, gitignored) |
+
+---
+
+## Rapid Apply Session
+
+The **Rapid Apply** page provides a focused, one-at-a-time flow for working through the apply
+queue with minimal friction. Every action is deliberately manual — the tool fills forms for you
+but never submits them.
+
+### Starting a session
+
+1. Navigate to **Rapid Apply** in the sidebar.
+2. If the queue is empty, click **Build Queue from existing offers** or use
+   **Run Emergency React Search + Build Queue** to collect fresh React/Frontend leads first.
+3. The highest-priority queued item is presented automatically.
+
+### Session workflow
+
+| Step | Action | Button |
+|---|---|---|
+| 1 | Fill the application form (browser opens, fields are auto-populated) | `1️⃣ Fill this application` |
+| 2 | Review the filled form manually in the browser, then submit it yourself | *(manual click)* |
+| 3 | Return to the app and confirm the application was sent | `2️⃣ Mark as sent` |
+| Skip | Pass on this offer with an optional reason | `3️⃣ Skip` |
+| Retry | Re-run the filler after a failure | `🔄 Retry fill` |
+| Retry Generic | Use the site-agnostic filler as fallback | `🔁 Retry (Generic)` |
+| Next | Move to the next item without changing status | `⏭️ Next` |
+| Open offer | Open the original posting in a new tab | `🌐 Open offer` |
+
+**Keyboard hints (shown on screen):** `1 Fill · 2 Mark sent · 3 Skip`
+
+### Safety invariants
+
+| Rule | Detail |
+|---|---|
+| **No auto-submit ever** | `fill_application_form` is always called with `auto_submit=False`. |
+| **Failed items stay retryable** | A fill failure sets status `FAILED`, not a terminal state. You can retry or use the generic filler. |
+| **No CAPTCHA bypass** | The filler fills fields only; login walls and CAPTCHAs require manual handling. |
+
+### Sidebar filters
+
+Use the session filters sidebar to narrow the queue:
+
+- **Min score** — hide offers below a score threshold
+- **Source** — show only offers from a specific job board
+- **Exclude failed items** — hide previously failed fill attempts
+
+### Skip reasons
+
+When skipping you can record a reason: `low salary`, `poor fit`, `duplicate`, `login required`,
+`broken form`, `not interested`, `other`. The reason is stored on the queue item and appended as
+an event to the linked application.
+
+### Stopping a session
+
+Click **🛑 Stop session** to reset all in-memory session state. The queue is preserved; you can
+resume any time.
