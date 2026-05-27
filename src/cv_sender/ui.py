@@ -52,7 +52,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Bookmarklet", "Debug"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Bookmarklet", "Debug"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -1451,6 +1451,258 @@ def _page_interviews() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Analytics page
+# ---------------------------------------------------------------------------
+
+
+def _page_analytics() -> None:  # noqa: PLR0912, PLR0914, PLR0915
+    st.title("Analytics")
+
+    try:
+        import pandas as pd  # noqa: PLC0415
+        _has_pandas = True
+    except ImportError:
+        _has_pandas = False
+
+    from cv_sender.analytics import (  # noqa: PLC0415
+        AnalyticsData,
+        build_llm_analytics_prompt,
+        calculate_cv_performance,
+        calculate_funnel_metrics,
+        calculate_response_rates,
+        calculate_salary_analysis,
+        calculate_source_performance,
+        calculate_technology_performance,
+        calculate_time_metrics,
+        calculate_weekly_activity,
+        export_analytics_csv,
+        generate_deterministic_insights,
+        load_analytics_data,
+    )
+
+    raw = load_analytics_data()
+    settings = load_settings()
+
+    # ── Filters ──────────────────────────────────────────────────────────
+    with st.expander("🔍 Filters", expanded=False):
+        fc1, fc2 = st.columns(2)
+        all_sources = sorted({a.source for a in raw.applications if a.source})
+        all_cvs = sorted({a.selected_cv_name for a in raw.applications if a.selected_cv_name})
+        all_statuses = sorted({a.status for a in raw.applications})
+        all_techs: list[str] = sorted(
+            {t for o in raw.offers for t in o.technologies if t}
+        )
+
+        sel_sources = fc1.multiselect("Source", all_sources)
+        sel_cvs = fc2.multiselect("CV profile", all_cvs)
+        sc1, sc2 = st.columns(2)
+        sel_statuses = sc1.multiselect("Status", all_statuses)
+        sel_techs = sc2.multiselect("Technology", all_techs)
+        dc1, dc2 = st.columns(2)
+        date_from = dc1.date_input("Sent from", value=None)
+        date_to = dc2.date_input("Sent to", value=None)
+        sl1, sl2 = st.columns(2)
+        salary_floor = sl1.number_input("Min salary ≥", value=0, step=1000)
+        salary_ceil = sl2.number_input("Max salary ≤ (0 = no limit)", value=0, step=1000)
+
+    # Build filtered app list
+    from cv_sender.analytics import _filter_apps  # noqa: PLC0415
+
+    filter_kwargs: dict = {}
+    if sel_sources:
+        filter_kwargs["sources"] = sel_sources
+    if sel_cvs:
+        filter_kwargs["cv_names"] = sel_cvs
+    if sel_statuses:
+        filter_kwargs["statuses"] = sel_statuses
+    if sel_techs:
+        filter_kwargs["technologies"] = sel_techs
+    if date_from:
+        filter_kwargs["date_from"] = datetime(date_from.year, date_from.month, date_from.day, tzinfo=UTC)
+    if date_to:
+        filter_kwargs["date_to"] = datetime(date_to.year, date_to.month, date_to.day, 23, 59, 59, tzinfo=UTC)
+    if salary_floor and salary_floor > 0:
+        filter_kwargs["salary_min_floor"] = float(salary_floor)
+    if salary_ceil and salary_ceil > 0:
+        filter_kwargs["salary_max_ceil"] = float(salary_ceil)
+
+    apps = _filter_apps(raw, **filter_kwargs)
+
+    # ── Pre-compute ───────────────────────────────────────────────────────
+    funnel = calculate_funnel_metrics(raw, apps)
+    rates = calculate_response_rates(raw, apps)
+    tm = calculate_time_metrics(raw, apps)
+    source_rows = calculate_source_performance(raw, apps)
+    cv_rows = calculate_cv_performance(raw, apps)
+    tech_rows = calculate_technology_performance(raw, apps)
+    salary = calculate_salary_analysis(raw, apps)
+    weekly = calculate_weekly_activity(raw, apps)
+    insights = generate_deterministic_insights(funnel, rates, tm, source_rows, cv_rows, salary, weekly)
+
+    st.caption(f"Showing metrics for **{len(apps)}** application(s) matching filters.")
+
+    # ── 1. Funnel ────────────────────────────────────────────────────────
+    st.subheader("Funnel")
+    fc = st.columns(9)
+    labels = [
+        ("Imported", funnel.imported),
+        ("Apply", funnel.apply_scored),
+        ("Maybe", funnel.maybe_scored),
+        ("Ready", funnel.ready_to_send),
+        ("Sent", funnel.sent),
+        ("Replies", funnel.reply_received),
+        ("Interview", funnel.interview),
+        ("Offer", funnel.offer),
+        ("Rejected", funnel.rejected),
+    ]
+    for col, (lbl, val) in zip(fc, labels):
+        col.metric(lbl, val)
+
+    # ── 2. Response rates ─────────────────────────────────────────────────
+    st.subheader("Response rates")
+    rc1, rc2, rc3, rc4 = st.columns(4)
+    rc1.metric("Response rate", f"{rates.response_rate():.1f}%", help="replies / sent")
+    rc2.metric("Interview rate", f"{rates.interview_rate():.1f}%", help="interviews / sent")
+    rc3.metric("Rejection rate", f"{rates.rejection_rate():.1f}%", help="rejections / sent")
+    rc4.metric("Offer rate", f"{rates.offer_rate():.1f}%", help="offers / sent")
+
+    # ── 3. Time metrics ───────────────────────────────────────────────────
+    st.subheader("Time metrics")
+    tc1, tc2, tc3, tc4, tc5 = st.columns(5)
+    tc1.metric(
+        "Avg days to reply",
+        f"{tm.avg_days_to_reply:.1f}" if tm.avg_days_to_reply is not None else "—",
+    )
+    tc2.metric(
+        "Median days to reply",
+        f"{tm.median_days_to_reply:.1f}" if tm.median_days_to_reply is not None else "—",
+    )
+    tc3.metric(
+        "Avg days to interview",
+        f"{tm.avg_days_to_interview:.1f}" if tm.avg_days_to_interview is not None else "—",
+    )
+    tc4.metric("Sent (last 7 days)", tm.sent_last_7)
+    tc5.metric("Sent (last 30 days)", tm.sent_last_30)
+
+    # ── 8. Weekly activity ────────────────────────────────────────────────
+    if weekly:
+        st.subheader("Weekly activity")
+        if _has_pandas:
+            import pandas as pd  # noqa: PLC0415
+
+            df_week = pd.DataFrame(weekly).set_index("week")
+            st.bar_chart(df_week[["sent", "replies", "interviews"]])
+        else:
+            for row in weekly[-12:]:
+                st.write(f"**{row['week']}** — sent: {row['sent']}, replies: {row['replies']}, interviews: {row['interviews']}")
+
+    # ── 4. Source performance ─────────────────────────────────────────────
+    if source_rows:
+        st.subheader("Source performance")
+        if _has_pandas:
+            import pandas as pd  # noqa: PLC0415
+
+            st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
+        else:
+            st.table(source_rows)
+
+    # ── 5. CV profile performance ─────────────────────────────────────────
+    if cv_rows:
+        st.subheader("CV profile performance")
+        if _has_pandas:
+            import pandas as pd  # noqa: PLC0415
+
+            st.dataframe(pd.DataFrame(cv_rows), use_container_width=True, hide_index=True)
+        else:
+            st.table(cv_rows)
+
+    # ── 6. Technology performance ─────────────────────────────────────────
+    if tech_rows:
+        st.subheader("Technology performance")
+        if _has_pandas:
+            import pandas as pd  # noqa: PLC0415
+
+            st.dataframe(
+                pd.DataFrame(tech_rows[:30]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.table(tech_rows[:30])
+
+    # ── 7. Salary analysis ────────────────────────────────────────────────
+    st.subheader("Salary analysis")
+    sa1, sa2, sa3, sa4 = st.columns(4)
+    sa1.metric(
+        "Avg sent salary min",
+        f"{salary.avg_sent_salary_min:,.0f}" if salary.avg_sent_salary_min else "—",
+    )
+    sa2.metric(
+        "Avg sent salary max",
+        f"{salary.avg_sent_salary_max:,.0f}" if salary.avg_sent_salary_max else "—",
+    )
+    sa3.metric(
+        "Avg reply salary min",
+        f"{salary.avg_reply_salary_min:,.0f}" if salary.avg_reply_salary_min else "—",
+    )
+    sa4.metric(
+        "Avg interview salary min",
+        f"{salary.avg_interview_salary_min:,.0f}" if salary.avg_interview_salary_min else "—",
+    )
+    if salary.bucket_rows:
+        if _has_pandas:
+            import pandas as pd  # noqa: PLC0415
+
+            st.dataframe(
+                pd.DataFrame(salary.bucket_rows), use_container_width=True, hide_index=True
+            )
+        else:
+            st.table(salary.bucket_rows)
+
+    # ── 9. Insights ───────────────────────────────────────────────────────
+    st.subheader("💡 Insights")
+    for insight in insights:
+        st.info(insight)
+
+    # Optional LLM summary
+    if settings.lm_studio.enabled:
+        if st.button("🤖 Generate AI summary"):
+            prompt = build_llm_analytics_prompt(funnel, rates, tm, source_rows, cv_rows)
+            try:
+                from cv_sender.llm import get_llm_score  # noqa: PLC0415
+
+                # Use the LLM via direct HTTP call
+                import httpx  # noqa: PLC0415
+
+                resp = httpx.post(
+                    f"{settings.lm_studio.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.lm_studio.api_key}"},
+                    json={
+                        "model": settings.lm_studio.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                    },
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                summary = resp.json()["choices"][0]["message"]["content"]
+                st.markdown("**AI Summary:**")
+                st.write(summary)
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"LLM request failed: {exc}")
+
+    # ── 11. Export ────────────────────────────────────────────────────────
+    st.subheader("Export")
+    csv_str = export_analytics_csv(source_rows, cv_rows, weekly, tech_rows)
+    st.download_button(
+        label="📥 Export analytics CSV",
+        data=csv_str,
+        file_name="analytics_export.csv",
+        mime="text/csv",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Bookmarklet page
 # ---------------------------------------------------------------------------
 
@@ -1610,6 +1862,8 @@ elif page == "Gmail":
     _page_gmail()
 elif page == "Interviews":
     _page_interviews()
+elif page == "Analytics":
+    _page_analytics()
 elif page == "Bookmarklet":
     _page_bookmarklet()
 elif page == "Debug":

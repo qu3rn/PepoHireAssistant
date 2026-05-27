@@ -573,6 +573,7 @@ Enable `answers.use_llm: true` in `settings.yaml`. The LLM is called only for qu
 - [x] Follow-up reminders and application lifecycle tracking
 - [x] Gmail read-only integration for detecting recruiter replies
 - [x] Google Calendar integration and interview scheduler
+- [x] Analytics dashboard with funnel, response rates, source/CV/tech performance, and CSV export
 
 ---
 
@@ -824,3 +825,49 @@ Interviews are saved to `data/interviews.json` (gitignored). Fields:
 | `status` | `scheduled` / `completed` / `cancelled` / `rescheduled` |
 | `source` | `manual` / `gmail` / `calendar` |
 | `calendar_event_id` | Google Calendar event id (empty when no event created) |
+
+
+---
+
+## Analytics
+
+The **Analytics** page (in the Streamlit sidebar) gives a local-only view of your job-search performance.
+
+### Metrics shown
+
+| Section | What you see |
+|---|---|
+| **Funnel** | Offers imported → scored → ready → sent → replies → interviews → offers |
+| **Response rates** | Response %, interview %, rejection %, offer % (all vs sent) |
+| **Time metrics** | Average and median days to first reply; days to interview; activity in last 7/30 days |
+| **Weekly activity** | Bar chart of sent applications, replies, and interviews per ISO week |
+| **Source performance** | Per-portal sent/reply/interview counts and response rate |
+| **CV profile performance** | Per-CV sent/reply/interview counts and response rate |
+| **Technology performance** | Per-technology sent/reply/interview counts and response rate |
+| **Salary analysis** | Average salary ranges for sent vs replied vs interviewed; response rate by salary bucket |
+| **Insights** | Deterministic plain-English observations derived from the data above |
+
+### How to interpret response rate and interview rate
+
+- **Response rate** = replies ÷ sent × 100. Includes interview invitations, rejections, and offers.
+- **Interview rate** = interviews ÷ sent × 100. Only counts `INTERVIEW` status.
+- A response rate above 20-30 % is generally good for a focused search.
+- If response rate is high but interview rate is low, your CV is working but something is failing
+  at the interview stage.
+
+### Exporting data
+
+Click **Export analytics CSV** on the Analytics page.  
+A CSV with four sections is downloaded: Source Performance, CV Profile Performance,
+Weekly Activity, and Technology Performance.
+
+### Optional AI summary
+
+If **LM Studio** is enabled in Settings, an **"Generate AI summary"** button appears.  
+It sends only aggregated statistics (counts and percentages) — no email content, company names,
+or personal details — to the local LLM and displays a short coaching summary.
+
+### Privacy
+
+All analytics run entirely locally. No data is sent to any external service.
+The Analytics page reads from `data/applications.json`, `data/offers.json`, and `data/interviews.json`.
