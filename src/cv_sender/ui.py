@@ -2250,32 +2250,82 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 active_sources = [n for n, v in src_enabled.items() if v]
 
                 with st.spinner(f"Collecting from: {', '.join(active_sources)} …"):
-                    results = run_job_collection(criteria, active_sources, auto_score=True)
+                    from cv_sender.collector_diagnostics import collect_with_diagnostics  # noqa: PLC0415
+                    report = collect_with_diagnostics(criteria, active_sources, auto_score=True)
 
-                total_imported = sum(r.imported_count for r in results)
-                total_dupes = sum(r.duplicate_count for r in results)
-                total_skipped = sum(r.skipped_count for r in results)
-
-                if results:
-                    import pandas as pd  # noqa: PLC0415
-
-                    rows = [
-                        {
-                            "Source": r.source,
-                            "Collected": r.collected_count,
-                            "Imported": r.imported_count,
-                            "Duplicate": r.duplicate_count,
-                            "Skipped": r.skipped_count,
-                            "Failed": r.failed_count,
-                            "Errors": "; ".join(r.errors) if r.errors else "",
-                        }
-                        for r in results
-                    ]
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True)
-
+                st.session_state["js_last_report"] = report
                 st.success(
-                    f"Done! Imported: **{total_imported}**, duplicates: {total_dupes}, skipped: {total_skipped}"
+                    f"Done! Found: **{report.total_found}** · "
+                    f"Imported: **{report.total_accepted}** · "
+                    f"Duplicates: {report.total_duplicates} · "
+                    f"Rejected: {report.total_rejected}"
                 )
+
+        # ---- Diagnostics panel (persists across reruns via session state) ----
+        report = st.session_state.get("js_last_report")
+        if report is None:
+            from cv_sender.collector_diagnostics import get_latest_collection_diagnostics  # noqa: PLC0415
+            report = get_latest_collection_diagnostics()
+
+        if report is not None:
+            st.subheader("Last collection report")
+            st.caption(f"Run {report.run_id[:8]}… · {report.started_at.strftime('%Y-%m-%d %H:%M')}")
+
+            # Per-source summary
+            if report.source_summaries:
+                import pandas as pd  # noqa: PLC0415
+                src_rows = [
+                    {
+                        "Source": ss.source,
+                        "Status": ss.status,
+                        "Found": ss.found_count,
+                        "Accepted": ss.accepted_count,
+                        "Duplicates": ss.duplicate_count,
+                        "Rejected": ss.rejected_count,
+                        "Failed": ss.failed_count,
+                        "Time (s)": ss.duration_seconds,
+                        "Error": ss.error or "",
+                    }
+                    for ss in report.source_summaries
+                ]
+                st.dataframe(pd.DataFrame(src_rows), use_container_width=True)
+
+            # Suggestions
+            if report.suggestions:
+                with st.expander("Filter diagnostics & suggestions", expanded=True):
+                    for s in report.suggestions:
+                        st.info(f"💡 {s}")
+
+            # Rejected / skipped offers
+            rejected = [d for d in report.decisions if d.decision in ("rejected", "needs_review", "failed")]
+            if rejected:
+                with st.expander(f"Rejected / skipped offers ({len(rejected)})", expanded=False):
+                    for d in rejected:
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([3, 2, 1])
+                            with c1:
+                                st.markdown(f"**{d.title}** — {d.company} ({d.source})")
+                                if d.url:
+                                    st.markdown(f"[{d.url[:60]}…]({d.url})" if len(d.url) > 60 else f"[{d.url}]({d.url})")
+                            with c2:
+                                st.markdown(f"Decision: **{d.decision}**")
+                                if d.reasons:
+                                    st.caption("Reasons: " + ", ".join(d.reasons))
+                                if d.matched_technologies:
+                                    st.caption("Techs: " + ", ".join(d.matched_technologies))
+                                st.caption(f"Salary: {d.salary_status}")
+                                if d.error:
+                                    st.caption(f"Error: {d.error}")
+                            with c3:
+                                if st.button("Import anyway", key=f"fi_{d.id}"):
+                                    from cv_sender.collector_diagnostics import force_import_collected_offer  # noqa: PLC0415
+                                    ok, msg = force_import_collected_offer(d, auto_score=True)
+                                    if ok:
+                                        st.success(msg)
+                                    else:
+                                        st.error(msg)
+                                if d.url:
+                                    st.link_button("Open", d.url)
 
     # ================================================================== #
     # Tab 2 — Rapid apply queue
@@ -2396,8 +2446,8 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
     # ------------------------------------------------------------------
     # Tabs
     # ------------------------------------------------------------------
-    tab_create, tab_active, tab_queue, tab_summary = st.tabs(
-        ["Create Campaign", "Active Campaigns", "Campaign Queue", "Session Summary"]
+    tab_create, tab_active, tab_queue, tab_summary, tab_diag = st.tabs(
+        ["Create Campaign", "Active Campaigns", "Campaign Queue", "Session Summary", "Collection Diagnostics"]
     )
 
     # ==================================================================
@@ -2721,6 +2771,74 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                             f"You sent {progress.sent}/{progress.target} applications. "
                             f"{progress.remaining} remaining. Start Rapid Apply to continue."
                         )
+
+    # ==================================================================
+    # TAB 5 — Collection diagnostics
+    # ==================================================================
+    with tab_diag:
+        from cv_sender.collector_diagnostics import (  # noqa: PLC0415
+            get_latest_collection_diagnostics,
+            force_import_collected_offer,
+        )
+
+        report = get_latest_collection_diagnostics()
+        if report is None:
+            st.info("No collection diagnostics yet. Run a collection from Job Search or from the Active Campaigns tab.")
+        else:
+            st.caption(f"Run {report.run_id[:8]}… · {report.started_at.strftime('%Y-%m-%d %H:%M')} · "
+                       f"Found: {report.total_found} · Imported: {report.total_accepted} · "
+                       f"Rejected: {report.total_rejected} · Duplicates: {report.total_duplicates}")
+
+            # Suggestions / queue shortage reasons
+            if report.suggestions:
+                st.subheader("Suggestions")
+                for s in report.suggestions:
+                    st.info(f"💡 {s}")
+
+            # Per-source status
+            if report.source_summaries:
+                st.subheader("Per-source status")
+                import pandas as pd  # noqa: PLC0415
+                src_rows = [
+                    {
+                        "Source": ss.source,
+                        "Status": ss.status,
+                        "Found": ss.found_count,
+                        "Accepted": ss.accepted_count,
+                        "Duplicates": ss.duplicate_count,
+                        "Rejected": ss.rejected_count,
+                        "Failed": ss.failed_count,
+                        "Error": ss.error or "",
+                    }
+                    for ss in report.source_summaries
+                ]
+                st.dataframe(pd.DataFrame(src_rows), use_container_width=True)
+
+            # Rejected offers
+            rejected = [d for d in report.decisions if d.decision in ("rejected", "needs_review", "failed")]
+            if rejected:
+                with st.expander(f"Rejected / skipped offers ({len(rejected)})", expanded=False):
+                    for d in rejected:
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([3, 2, 1])
+                            with c1:
+                                st.markdown(f"**{d.title}** — {d.company} ({d.source})")
+                                if d.url:
+                                    st.link_button("Open", d.url)
+                            with c2:
+                                st.markdown(f"Decision: **{d.decision}**")
+                                if d.reasons:
+                                    st.caption("Reasons: " + ", ".join(d.reasons))
+                                st.caption(f"Salary: {d.salary_status}")
+                                if d.error:
+                                    st.caption(f"Error: {d.error}")
+                            with c3:
+                                if st.button("Import anyway", key=f"cfi_{d.id}"):
+                                    ok, msg = force_import_collected_offer(d, auto_score=True)
+                                    if ok:
+                                        st.success(msg)
+                                    else:
+                                        st.error(msg)
 
 
 def _page_bookmarklet() -> None:

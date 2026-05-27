@@ -1112,3 +1112,104 @@ The campaign mode does **not** auto-submit any application form.  The flow is al
 |---|---|
 | `data/campaigns.json` | Campaign definitions |
 | `data/campaign_activities.json` | Per-event activity log |
+
+---
+
+## Collector Diagnostics
+
+Every time you collect offers from job boards (via the **Job Search** page or a Campaign), the app
+produces a **Collection Diagnostics** report that explains exactly what was found, what was
+imported, and why each offer was accepted, rejected, or flagged.
+
+### Where to view the report
+
+- **Job Search page** — a diagnostics panel appears immediately after collection, showing a
+  source-by-source summary, suggestions for loosening filters, and a collapsible table of all
+  rejected offers.
+- **Campaigns → Collection Diagnostics tab** — shows the most recent diagnostics report in the
+  same format, accessible at any time after collection.
+
+### Source summary table
+
+| Column | Meaning |
+|---|---|
+| Source | Job board name |
+| Status | `ok` / `failed` — whether the collector returned results or threw an error |
+| Found | Total offers returned by the board |
+| Accepted | Offers that passed all filters and were imported |
+| Duplicates | Offers already in storage (same normalised URL) |
+| Rejected | Offers that failed one or more filter criteria |
+| Duration | Time taken to collect from this source (seconds) |
+
+### Why offers are rejected — reason codes
+
+| Code | Meaning |
+|---|---|
+| `duplicate_url` | Offer URL already exists in `data/offers.json` |
+| `already_applied` | You already have an application for this offer |
+| `missing_salary` | Offer has no salary data and `require_salary` is `true` |
+| `salary_below_minimum` | Advertised salary is below `min_salary_b2b` |
+| `excluded_keyword` | Offer title or description contains one of your `exclude_keywords` |
+| `no_required_keyword_match` | None of your `keywords` appear in the offer title or description |
+| `no_required_technology_match` | Offer's tech stack doesn't overlap with your `technologies` list |
+| `wrong_location` | Offer location doesn't match your `locations` filter |
+| `wrong_seniority` | Offer seniority level doesn't match your filter |
+| `wrong_contract_type` | Offer contract type doesn't match your `contract_types` filter |
+| `low_score` | Offer scored below the campaign `min_score` threshold |
+| `protected_page` | Collector detected a login wall or bot-protection page |
+| `login_required` | Board requires authentication to access this listing |
+| `captcha` | CAPTCHA challenge detected; automated collection cannot proceed |
+| `import_failed` | Offer passed filters but storage write failed |
+| `unknown` | Unexpected error during evaluation |
+
+### Suggestions for loosening filters
+
+After collection, the diagnostics engine analyses the rejection reasons and generates plain-English
+suggestions such as:
+
+- _"5 offers were rejected for salary_below_minimum. Consider lowering min_salary_b2b."_
+- _"3 offers had no keyword match. Consider adding 'Fullstack Developer' to your keywords."_
+- _"JustJoinIT returned 0 offers — the source may be temporarily unavailable."_
+
+Suggestions are shown as an expandable list above the rejected-offers table.
+
+### "Import anyway" — force-importing a rejected offer
+
+In the rejected offers table, each row has an **Import anyway** button. Clicking it calls
+`force_import_collected_offer`, which:
+
+1. Creates an `Offer` from the raw collected data.
+2. Writes it to `data/offers.json` (skips if the URL already exists).
+3. Optionally runs auto-scoring.
+4. Optionally adds the offer to the apply queue.
+
+Use this when you want an offer that was filtered out for a threshold reason (e.g. salary slightly
+below your minimum) without permanently changing your criteria settings.
+
+> The offer is marked `manually_overridden: true` in the diagnostics log so you can track which
+> imports bypassed filters.
+
+### Data file
+
+| File | Contents |
+|---|---|
+| `data/collection_diagnostics.json` | Rolling log of the last 20 collection runs, keyed by `run_id` |
+
+Each run contains:
+- `run_id` — UUID
+- `started_at` / `finished_at` — ISO timestamps
+- `criteria` — the search criteria snapshot used for this run
+- `source_summaries` — per-source statistics
+- `decisions` — one `CollectedOfferDecision` record per offer
+- `global_warnings` — any cross-source warnings
+- `suggestions` — plain-English filter-loosening suggestions
+
+The file keeps at most **20 runs**; older runs are evicted automatically.
+
+### Limitations
+
+- Collectors only use **public unauthenticated APIs** — no login, no CAPTCHA bypass.
+- LinkedIn is a stub only and is never collected automatically.
+- The diagnostics report reflects the state at collection time; if you later change your criteria,
+  historical reports are not retroactively updated.
+- `force_import` does not re-run extraction — it uses the raw data already collected.
