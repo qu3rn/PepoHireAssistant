@@ -102,3 +102,23 @@ follow_up:
   show_due_within_days: 3
   # When false, Saturday/Sunday due dates are moved to the next Monday
   allow_weekend_due_dates: false
+
+# Gmail read-only integration
+gmail:
+  enabled: false
+  # Path to the OAuth 2.0 client credentials JSON downloaded from Google Cloud Console
+  credentials_path: "config/google_credentials.json"
+  # Path where the OAuth token is cached after first authorisation
+  token_path: "config/google_token.json"
+  # Always true; the app only requests the readonly scope
+  readonly: true
+  # How many days back to search
+  scan_days_back: 30
+  # Maximum number of Gmail messages to fetch per scan
+  max_results: 100
+  # Store full email bodies (not recommended – keep false unless you understand the implications)
+  store_email_body: false
+  # Store short email snippets (≤200 chars) for display in the UI
+  store_snippet: true
+  # Auto-apply status suggestions without user confirmation (keep false)
+  auto_update_status: false

@@ -203,3 +203,52 @@ class Application(BaseModel):
     company_contact_email: str = ""
     outcome: str = ""                 # free-text outcome note
     reminder_snoozed_until: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Gmail email matching
+# ---------------------------------------------------------------------------
+
+
+class EmailClassification(StrEnum):
+    """Classification of an email relative to a job application."""
+
+    REPLY_RECEIVED = "reply_received"
+    INTERVIEW_INVITATION = "interview_invitation"
+    REJECTION = "rejection"
+    OFFER = "offer"
+    RECRUITER_SCREENING = "recruiter_screening"
+    AUTOMATED_CONFIRMATION = "automated_confirmation"
+    UNRELATED = "unrelated"
+    UNKNOWN = "unknown"
+
+
+class EmailMatchStatus(StrEnum):
+    """Whether the user has acted on an email match."""
+
+    PENDING = "pending"
+    APPLIED = "applied"
+    IGNORED = "ignored"
+
+
+class EmailMatch(BaseModel):
+    """A Gmail message matched to a job application."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    application_id: str
+    email_message_id: str          # Gmail message id (unique)
+    thread_id: str = ""
+    from_email: str = ""
+    from_name: str = ""
+    subject: str = ""
+    snippet: str = ""
+    received_at: datetime
+    matched_company: str = ""
+    matched_application_title: str = ""
+    match_score: int = 0
+    classification: EmailClassification = EmailClassification.UNKNOWN
+    confidence: float = 0.0
+    reasons: list[str] = Field(default_factory=list)
+    status_suggestion: str = "no_change"   # one of: reply_received|interview|rejected|offer|no_change
+    status: EmailMatchStatus = EmailMatchStatus.PENDING
+    created_at: datetime = Field(default_factory=_utcnow)

@@ -571,6 +571,7 @@ Enable `answers.use_llm: true` in `settings.yaml`. The LLM is called only for qu
 - [x] Source-specific offer extractors (RocketJobs, JustJoinIT, NoFluffJobs, Pracuj.pl)
 - [x] CV profiles with automatic per-offer selection
 - [x] Follow-up reminders and application lifecycle tracking
+- [x] Gmail read-only integration for detecting recruiter replies
 
 ---
 
@@ -621,3 +622,128 @@ follow_up:
   # When false, Saturday/Sunday due dates are moved to the next Monday
   allow_weekend_due_dates: false
 ```
+
+---
+
+## Gmail read-only integration
+
+The app can scan your Gmail inbox in **read-only** mode to detect recruiter or company
+replies and suggest status updates for your applications.
+
+> No emails are sent, deleted, archived, or modified.  
+> Full email bodies are never stored by default.  
+> OAuth tokens and credentials are never logged or committed.
+
+### How to create Google Cloud OAuth credentials
+
+1. Go to [https://console.cloud.google.com](https://console.cloud.google.com).
+2. Create a new project (or select an existing one).
+3. Enable the **Gmail API**: _APIs & Services → Library → Gmail API → Enable_.
+4. Create credentials: _APIs & Services → Credentials → Create Credentials → OAuth client ID_.
+5. Choose **Desktop app** as the application type.
+6. Download the JSON file.
+7. Save it to `config/google_credentials.json` (the path is configurable).
+
+### Where to place the credentials file
+
+Default path: `config/google_credentials.json`
+
+This path is listed in `.gitignore` and will never be committed.
+
+### How to enable Gmail in settings
+
+Set `gmail.enabled: true` in `config/settings.yaml`, or use the **Settings** page in the UI.
+
+```yaml
+gmail:
+  enabled: true
+  credentials_path: "config/google_credentials.json"
+  token_path: "config/google_token.json"
+  scan_days_back: 30
+  max_results: 100
+  store_snippet: true
+  store_email_body: false
+  auto_update_status: false
+```
+
+### How to start the OAuth flow
+
+Open the **Gmail** page in the UI and click **Scan**.
+A browser window will open asking you to sign in with your Google account and grant
+read-only access.
+
+The token is saved to `config/google_token.json` and reused for all future scans.
+This file is listed in `.gitignore`.
+
+### Read-only scope
+
+The app requests only one OAuth scope:
+
+```
+https://www.googleapis.com/auth/gmail.readonly
+```
+
+This scope allows listing and reading messages. It does **not** allow sending,
+deleting, or modifying any email or label.
+
+### How to scan emails
+
+1. Open the **Gmail** page in the Streamlit UI.
+2. Click **Scan last 7 days** or **Scan last 30 days**.
+3. Review matches in the **Email matches** table.
+4. Click **Apply suggestion** to update the application status, or **Ignore** to dismiss.
+
+Suggestions are **never applied automatically** (`auto_update_status` defaults to `false`).
+
+### Email matching strategy
+
+Emails are matched to applications using a score:
+
+| Signal | Points |
+|---|---|
+| Company name in from/subject/snippet | +50 |
+| Job title in subject/snippet | +30 |
+| Sender domain resembles company name | +20 |
+| Application sent within last 45 days | +15 |
+| ≥2 recruiter keywords present | +10 |
+| Marketing/newsletter keywords detected | −50 |
+
+Only matches scoring ≥ 50 are recorded.
+
+### Classification
+
+Emails are classified by keyword rules:
+
+| Classification | Triggers |
+|---|---|
+| `rejection` | "unfortunately", "nie możemy zaprosić", "decided not to move forward" |
+| `interview_invitation` | "interview", "rozmowa", "availability", "termin", "next step" |
+| `offer` | "job offer", "oferta współpracy" |
+| `automated_confirmation` | "thank you for applying", "dziękujemy za aplikację" |
+| `reply_received` | Other recruiter keywords |
+| `unknown` | No strong keywords matched |
+
+If LM Studio is enabled, it is used as a fallback for ambiguous emails.
+
+### What data is stored locally
+
+| Field | Stored |
+|---|---|
+| Gmail message ID | Always (for deduplication) |
+| Thread ID | Always |
+| Sender name / email | Always |
+| Subject | Always |
+| Snippet (≤200 chars) | When `store_snippet: true` (default) |
+| Full email body | Only when `store_snippet: false` AND `store_email_body: true` |
+| OAuth token | `config/google_token.json` (gitignored) |
+| OAuth credentials | `config/google_credentials.json` (gitignored) |
+
+Data is stored in `data/email_matches.json` (gitignored).
+
+### Known limitations
+
+- Only emails matching job-related keywords are fetched (reduces noise but may miss some replies).
+- The matching heuristic is rule-based; unusual company names or indirect replies may not match.
+- Gmail API quota: ~1 billion units/day for free; scanning 100 messages uses ~200 units.
+- Calendar events are **not** created automatically even when an interview invitation is detected.
+- Only the `gmail.readonly` scope is requested; modifying labels is not supported.

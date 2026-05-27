@@ -13,6 +13,7 @@ from cv_sender.models import (
     ApplicationStatus,
     BatchImportItemResult,
     BatchImportResult,
+    EmailMatchStatus,
     FillResult,
     FillStatus,
     ImportStatus,
@@ -1055,3 +1056,156 @@ def generate_follow_up_message_for(app_id: str) -> str:
         return ""
     profile = load_profile()
     return generate_follow_up_message(app, candidate_name=profile.full_name)
+
+
+# ---------------------------------------------------------------------------
+# Gmail integration
+# ---------------------------------------------------------------------------
+
+
+def run_gmail_scan(use_llm: bool = False) -> tuple[int, int, str]:
+    """Scan Gmail for application replies and persist new matches.
+
+    Returns ``(new_matches, skipped_duplicates, error_message)``.
+    ``error_message`` is empty on success.
+    """
+    from cv_sender.gmail_integration import (  # noqa: PLC0415
+        get_gmail_service,
+        scan_gmail_for_application_replies,
+    )
+    from cv_sender.storage import (  # noqa: PLC0415
+        add_email_match,
+        load_email_matches,
+    )
+
+    settings = load_settings()
+    cfg = settings.gmail
+
+    try:
+        service = get_gmail_service(cfg)
+    except (ImportError, FileNotFoundError, RuntimeError) as exc:
+        return 0, 0, str(exc)
+
+    applications = load_applications()
+    existing_ids = {m.email_message_id for m in load_email_matches()}
+
+    try:
+        new_matches = scan_gmail_for_application_replies(
+            service=service,
+            applications=applications,
+            cfg=cfg,
+            existing_message_ids=existing_ids,
+            use_llm=use_llm,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return 0, 0, f"Scan failed: {exc}"
+
+    added = 0
+    skipped = 0
+    for match in new_matches:
+        if add_email_match(match):
+            added += 1
+        else:
+            skipped += 1
+
+    return added, skipped, ""
+
+
+def apply_email_match(match_id: str) -> tuple[bool, str]:
+    """Apply the status suggestion from an email match to its application.
+
+    This is the **only** place an email match can trigger an application update.
+    ``auto_update_status`` must be explicitly True or the user must call this
+    function manually (via the UI "Apply suggestion" button).
+
+    Returns ``(success, message)``.
+    """
+    from cv_sender.storage import (  # noqa: PLC0415
+        get_email_match_by_id,
+        update_email_match,
+    )
+
+    match = get_email_match_by_id(match_id)
+    if match is None:
+        return False, f"Email match '{match_id}' not found."
+
+    app = get_application_by_id(match.application_id)
+    if app is None:
+        return False, f"Application '{match.application_id}' not found."
+
+    suggestion = match.status_suggestion
+    _suggestion_to_status: dict[str, ApplicationStatus] = {
+        "reply_received": ApplicationStatus.REPLY_RECEIVED,
+        "interview": ApplicationStatus.INTERVIEW,
+        "rejected": ApplicationStatus.REJECTED,
+        "offer": ApplicationStatus.OFFER,
+    }
+
+    if suggestion == "no_change" or suggestion not in _suggestion_to_status:
+        # Just mark the match as applied without changing status
+        updated_match = match.model_copy(update={"status": EmailMatchStatus.APPLIED})
+        update_email_match(updated_match)
+        return True, "Match acknowledged; no status change applied."
+
+    new_status = _suggestion_to_status[suggestion]
+    now = datetime.now(UTC)
+
+    updated_app = app.model_copy(
+        update={
+            "status": new_status,
+            "updated_at": now,
+            "last_contact_at": match.received_at,
+            "events": app.events + [
+                ApplicationEvent(
+                    timestamp=now,
+                    event="email_match_applied",
+                    details=(
+                        f"subject={match.subject!r} "
+                        f"classification={match.classification} "
+                        f"suggestion={suggestion}"
+                    ),
+                )
+            ],
+        }
+    )
+
+    # Extra fields for specific transitions
+    if new_status == ApplicationStatus.INTERVIEW and app.interview_at is None:
+        updated_app = updated_app.model_copy(
+            update={"next_action_type": "interview", "next_action_at": match.received_at}
+        )
+    elif new_status in (ApplicationStatus.REJECTED, ApplicationStatus.OFFER):
+        updated_app = updated_app.model_copy(
+            update={"next_action_type": "", "next_action_at": None}
+        )
+
+    update_application(updated_app)
+
+    updated_match = match.model_copy(update={"status": EmailMatchStatus.APPLIED})
+    update_email_match(updated_match)
+
+    return True, f"Application status updated to '{new_status}'."
+
+
+def ignore_email_match(match_id: str) -> tuple[bool, str]:
+    """Mark an email match as ignored (no status change)."""
+    from cv_sender.storage import (  # noqa: PLC0415
+        get_email_match_by_id,
+        update_email_match,
+    )
+
+    match = get_email_match_by_id(match_id)
+    if match is None:
+        return False, f"Email match '{match_id}' not found."
+    updated = match.model_copy(update={"status": EmailMatchStatus.IGNORED})
+    update_email_match(updated)
+    return True, "Match ignored."
+
+
+def get_matches_for_application(app_id: str) -> list:
+    """Return all email matches for the given application, sorted newest first."""
+    from cv_sender.storage import load_email_matches  # noqa: PLC0415
+
+    matches = load_email_matches()
+    app_matches = [m for m in matches if m.application_id == app_id]
+    return sorted(app_matches, key=lambda m: m.received_at, reverse=True)

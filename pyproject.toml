@@ -18,6 +18,10 @@ dependencies = [
     "pandas>=2.0",
     "fastapi>=0.111",
     "uvicorn>=0.29",
+    "google-api-python-client>=2.100",
+    "google-auth>=2.23",
+    "google-auth-oauthlib>=1.1",
+    "google-auth-httplib2>=0.2",
 ]
 
 [project.scripts]

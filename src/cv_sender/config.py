@@ -124,6 +124,20 @@ class FollowUpConfig(BaseModel):
     allow_weekend_due_dates: bool = False
 
 
+class GmailConfig(BaseModel):
+    """Settings for the Gmail read-only integration."""
+
+    enabled: bool = False
+    credentials_path: str = "config/google_credentials.json"
+    token_path: str = "config/google_token.json"
+    readonly: bool = True
+    scan_days_back: int = 30
+    max_results: int = 100
+    store_email_body: bool = False
+    store_snippet: bool = True
+    auto_update_status: bool = False
+
+
 class Settings(BaseModel):
     """Application-wide search and scoring settings."""
 
@@ -142,6 +156,7 @@ class Settings(BaseModel):
     answer_profile: AnswerProfileConfig = AnswerProfileConfig()
     answer_templates: AnswerTemplatesConfig = AnswerTemplatesConfig()
     follow_up: FollowUpConfig = FollowUpConfig()
+    gmail: GmailConfig = GmailConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +197,8 @@ def load_settings(path: str | None = None) -> Settings:
         data["answer_templates"] = AnswerTemplatesConfig.model_validate(data["answer_templates"])
     if "follow_up" in data and isinstance(data["follow_up"], dict):
         data["follow_up"] = FollowUpConfig.model_validate(data["follow_up"])
+    if "gmail" in data and isinstance(data["gmail"], dict):
+        data["gmail"] = GmailConfig.model_validate(data["gmail"])
     return Settings.model_validate(data)
 
 
