@@ -90,3 +90,15 @@ answer_templates:
   react_experience: "I have practical experience building frontend applications with React, TypeScript and modern UI tooling."
   availability: "{availability}"
   salary: "{salary_expectation}"
+
+# Follow-up reminder settings
+follow_up:
+  enabled: true
+  # Days after sending before showing the follow-up reminder
+  default_follow_up_after_days: 5
+  # Days after last contact before marking as "no response / stale"
+  mark_no_response_after_days: 14
+  # How far ahead to show upcoming due reminders in the dashboard
+  show_due_within_days: 3
+  # When false, Saturday/Sunday due dates are moved to the next Monday
+  allow_weekend_due_dates: false

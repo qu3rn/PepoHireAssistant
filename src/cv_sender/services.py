@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from cv_sender.config import load_profile, load_settings
 from cv_sender.cv_profiles import CVProfile, CVSelectionResult, load_cv_profiles, select_cv_for_offer_object, validate_cv_profiles as _validate_cv_profiles
@@ -801,3 +801,257 @@ def preview_application_answers(
         availability_override=profile.availability,
         notice_period_override=profile.notice_period,
     )
+
+
+# ---------------------------------------------------------------------------
+# Follow-up tracking
+# ---------------------------------------------------------------------------
+
+
+def mark_application_sent(
+    app_id: str,
+    sent_at: datetime | None = None,
+) -> tuple[bool, str]:
+    """Set *app* status to SENT and schedule a follow-up reminder.
+
+    If *sent_at* is None, ``datetime.now(UTC)`` is used.
+    Idempotent: calling again updates the timestamp and reschedules the
+    follow-up, but does not create duplicate events.
+    """
+    from cv_sender.follow_up import calculate_follow_up_due  # noqa: PLC0415
+
+    app = get_application_by_id(app_id)
+    if app is None:
+        return False, f"Application '{app_id}' not found."
+
+    now = datetime.now(UTC)
+    _sent_at = sent_at or now
+    settings = load_settings()
+    fu_due = calculate_follow_up_due(_sent_at, settings.follow_up)
+
+    changes: dict = {
+        "status": ApplicationStatus.SENT,
+        "sent_at": _sent_at,
+        "last_contact_at": _sent_at,
+        "follow_up_due_at": fu_due,
+        "next_action_at": fu_due,
+        "next_action_type": "follow_up",
+        "updated_at": now,
+    }
+    updated = app.model_copy(update=changes)
+    updated.events.append(
+        ApplicationEvent(
+            timestamp=now,
+            event="status_changed",
+            details=f"{app.status} → {ApplicationStatus.SENT}",
+        )
+    )
+    updated.events.append(
+        ApplicationEvent(
+            timestamp=now,
+            event="follow_up_due_created",
+            details=f"Follow-up due at {fu_due.date().isoformat()}",
+        )
+    )
+    update_application(updated)
+    return True, f"Marked as sent. Follow-up due {fu_due.date().isoformat()}."
+
+
+def mark_follow_up_sent(app_id: str) -> tuple[bool, str]:
+    """Record that a manual follow-up was sent."""
+    app = get_application_by_id(app_id)
+    if app is None:
+        return False, f"Application '{app_id}' not found."
+
+    now = datetime.now(UTC)
+    updated = app.model_copy(
+        update={
+            "status": ApplicationStatus.FOLLOW_UP_SENT,
+            "follow_up_sent_at": now,
+            "last_contact_at": now,
+            "next_action_at": None,
+            "next_action_type": "",
+            "updated_at": now,
+        }
+    )
+    updated.events.append(
+        ApplicationEvent(
+            timestamp=now,
+            event="follow_up_sent",
+            details="Manual follow-up sent",
+        )
+    )
+    update_application(updated)
+    return True, "Follow-up marked as sent."
+
+
+def mark_reply_received(app_id: str, note: str = "") -> tuple[bool, str]:
+    """Record that a reply was received from the company."""
+    app = get_application_by_id(app_id)
+    if app is None:
+        return False, f"Application '{app_id}' not found."
+
+    now = datetime.now(UTC)
+    updated = app.model_copy(
+        update={
+            "status": ApplicationStatus.REPLY_RECEIVED,
+            "last_contact_at": now,
+            "follow_up_due_at": None,
+            "next_action_at": None,
+            "next_action_type": "",
+            "updated_at": now,
+        }
+    )
+    updated.events.append(
+        ApplicationEvent(
+            timestamp=now,
+            event="reply_received",
+            details=note or "Reply received",
+        )
+    )
+    update_application(updated)
+    return True, "Reply received recorded."
+
+
+def schedule_interview(
+    app_id: str,
+    interview_at: datetime,
+    note: str | None = None,
+) -> tuple[bool, str]:
+    """Set the interview date and update status to INTERVIEW."""
+    app = get_application_by_id(app_id)
+    if app is None:
+        return False, f"Application '{app_id}' not found."
+
+    now = datetime.now(UTC)
+    updated = app.model_copy(
+        update={
+            "status": ApplicationStatus.INTERVIEW,
+            "interview_at": interview_at,
+            "next_action_at": interview_at,
+            "next_action_type": "interview",
+            "next_action_note": note or "",
+            "updated_at": now,
+        }
+    )
+    updated.events.append(
+        ApplicationEvent(
+            timestamp=now,
+            event="interview_scheduled",
+            details=f"Interview at {interview_at.isoformat()}" + (f" — {note}" if note else ""),
+        )
+    )
+    update_application(updated)
+    return True, f"Interview scheduled for {interview_at.date().isoformat()}."
+
+
+def snooze_application_reminder(app_id: str, days: int) -> tuple[bool, str]:
+    """Delay the reminder for *app_id* by *days* days."""
+    app = get_application_by_id(app_id)
+    if app is None:
+        return False, f"Application '{app_id}' not found."
+
+    now = datetime.now(UTC)
+    snooze_until = now + timedelta(days=days)
+    updated = app.model_copy(
+        update={
+            "reminder_snoozed_until": snooze_until,
+            "updated_at": now,
+        }
+    )
+    updated.events.append(
+        ApplicationEvent(
+            timestamp=now,
+            event="reminder_snoozed",
+            details=f"Snoozed {days} day(s) until {snooze_until.date().isoformat()}",
+        )
+    )
+    update_application(updated)
+    return True, f"Reminder snoozed until {snooze_until.date().isoformat()}."
+
+
+def update_next_action(
+    app_id: str,
+    next_action_at: datetime,
+    next_action_type: str,
+    note: str | None = None,
+) -> tuple[bool, str]:
+    """Set the next scheduled action for *app_id*."""
+    app = get_application_by_id(app_id)
+    if app is None:
+        return False, f"Application '{app_id}' not found."
+
+    now = datetime.now(UTC)
+    updated = app.model_copy(
+        update={
+            "next_action_at": next_action_at,
+            "next_action_type": next_action_type,
+            "next_action_note": note or "",
+            "updated_at": now,
+        }
+    )
+    update_application(updated)
+    return True, "Next action updated."
+
+
+def archive_application(app_id: str, note: str = "") -> tuple[bool, str]:
+    """Archive an application (sets status to ARCHIVED)."""
+    app = get_application_by_id(app_id)
+    if app is None:
+        return False, f"Application '{app_id}' not found."
+
+    now = datetime.now(UTC)
+    updated = app.model_copy(
+        update={
+            "status": ApplicationStatus.ARCHIVED,
+            "updated_at": now,
+        }
+    )
+    updated.events.append(
+        ApplicationEvent(
+            timestamp=now,
+            event="archived",
+            details=note or "Application archived",
+        )
+    )
+    update_application(updated)
+    return True, "Application archived."
+
+
+def get_follow_up_due_applications(
+    now: datetime | None = None,
+) -> list[Application]:
+    """Return applications with a follow-up that is currently due.
+
+    Excludes applications that have been snoozed past *now*.
+    """
+    from cv_sender.follow_up import is_follow_up_due  # noqa: PLC0415
+
+    _now = now or datetime.now(UTC)
+    apps = load_applications()
+    return [a for a in apps if is_follow_up_due(a, _now)]
+
+
+def get_stale_applications(now: datetime | None = None) -> list[Application]:
+    """Return applications with no contact for ``mark_no_response_after_days``."""
+    from cv_sender.follow_up import is_stale  # noqa: PLC0415
+
+    _now = now or datetime.now(UTC)
+    settings = load_settings()
+    apps = load_applications()
+    return [a for a in apps if is_stale(a, settings.follow_up, _now)]
+
+
+def generate_follow_up_message_for(app_id: str) -> str:
+    """Return a plain-text follow-up message for the application *app_id*.
+
+    Returns an empty string when the application is not found.
+    The message is meant to be copied and sent manually.
+    """
+    from cv_sender.follow_up import generate_follow_up_message  # noqa: PLC0415
+
+    app = get_application_by_id(app_id)
+    if app is None:
+        return ""
+    profile = load_profile()
+    return generate_follow_up_message(app, candidate_name=profile.full_name)

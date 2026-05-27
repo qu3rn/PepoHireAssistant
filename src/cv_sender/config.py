@@ -114,6 +114,16 @@ class AnswerGenerationConfig(BaseModel):
     max_answer_chars: int = 600
 
 
+class FollowUpConfig(BaseModel):
+    """Settings for the follow-up reminder system."""
+
+    enabled: bool = True
+    default_follow_up_after_days: int = 5
+    mark_no_response_after_days: int = 14
+    show_due_within_days: int = 3
+    allow_weekend_due_dates: bool = False
+
+
 class Settings(BaseModel):
     """Application-wide search and scoring settings."""
 
@@ -131,6 +141,7 @@ class Settings(BaseModel):
     answers: AnswerGenerationConfig = AnswerGenerationConfig()
     answer_profile: AnswerProfileConfig = AnswerProfileConfig()
     answer_templates: AnswerTemplatesConfig = AnswerTemplatesConfig()
+    follow_up: FollowUpConfig = FollowUpConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +180,8 @@ def load_settings(path: str | None = None) -> Settings:
         data["answer_profile"] = AnswerProfileConfig.model_validate(data["answer_profile"])
     if "answer_templates" in data and isinstance(data["answer_templates"], dict):
         data["answer_templates"] = AnswerTemplatesConfig.model_validate(data["answer_templates"])
+    if "follow_up" in data and isinstance(data["follow_up"], dict):
+        data["follow_up"] = FollowUpConfig.model_validate(data["follow_up"])
     return Settings.model_validate(data)
 
 
