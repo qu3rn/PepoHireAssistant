@@ -199,6 +199,8 @@ class Application(BaseModel):
     next_action_type: str = ""        # "follow_up" | "interview" | ""
     next_action_note: str = ""
     interview_at: datetime | None = None
+    interview_id: str = ""           # FK to Interview.id
+    calendar_event_id: str = ""      # Google Calendar event id (if created)
     company_contact_name: str = ""
     company_contact_email: str = ""
     outcome: str = ""                 # free-text outcome note
@@ -252,3 +254,47 @@ class EmailMatch(BaseModel):
     status_suggestion: str = "no_change"   # one of: reply_received|interview|rejected|offer|no_change
     status: EmailMatchStatus = EmailMatchStatus.PENDING
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Interview scheduling
+# ---------------------------------------------------------------------------
+
+
+class InterviewType(StrEnum):
+    PHONE = "phone"
+    VIDEO = "video"
+    ONSITE = "onsite"
+    TECHNICAL = "technical"
+    HR = "hr"
+    UNKNOWN = "unknown"
+
+
+class InterviewStatus(StrEnum):
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    RESCHEDULED = "rescheduled"
+
+
+class Interview(BaseModel):
+    """A scheduled interview linked to a job application."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    application_id: str
+    company: str = ""
+    title: str = ""
+    interview_at: datetime
+    duration_minutes: int = 60
+    timezone: str = "Europe/Warsaw"
+    location: str = ""
+    meeting_url: str = ""
+    interview_type: InterviewType = InterviewType.UNKNOWN
+    participants: list[str] = Field(default_factory=list)
+    notes: str = ""
+    source: str = "manual"          # "manual" | "gmail" | "calendar"
+    gmail_match_id: str = ""
+    calendar_event_id: str = ""
+    status: InterviewStatus = InterviewStatus.SCHEDULED
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

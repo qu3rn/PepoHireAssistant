@@ -572,6 +572,7 @@ Enable `answers.use_llm: true` in `settings.yaml`. The LLM is called only for qu
 - [x] CV profiles with automatic per-offer selection
 - [x] Follow-up reminders and application lifecycle tracking
 - [x] Gmail read-only integration for detecting recruiter replies
+- [x] Google Calendar integration and interview scheduler
 
 ---
 
@@ -747,3 +748,79 @@ Data is stored in `data/email_matches.json` (gitignored).
 - Gmail API quota: ~1 billion units/day for free; scanning 100 messages uses ~200 units.
 - Calendar events are **not** created automatically even when an interview invitation is detected.
 - Only the `gmail.readonly` scope is requested; modifying labels is not supported.
+
+
+---
+
+## Interview scheduling and Google Calendar
+
+The app lets you track interviews and, optionally, create Google Calendar events.
+
+### Quick start
+
+1. **Schedule manually** — go to the **Interviews** page and fill in the _Schedule new_ form.
+2. **Schedule from a Gmail match** — on the **Gmail** page, find an _interview invitation_ match
+   and click **Schedule interview**.
+3. Interviews appear in the **Interviews** page and the **Dashboard** upcoming section.
+
+### Enabling Google Calendar (optional)
+
+Calendar events are **never created automatically**. You must opt in every time.
+
+#### Setup steps
+
+1. Reuse the same `config/google_credentials.json` file from Gmail setup (see above).  
+   Both Gmail and Calendar share the same OAuth 2.0 client, but each has its own token file.
+2. Enable the **Google Calendar API**: _APIs & Services → Library → Calendar API → Enable_.
+3. Set `calendar.enabled: true` in `config/settings.yaml`:
+
+```yaml
+calendar:
+  enabled: true
+  credentials_path: "config/google_credentials.json"   # same file as Gmail
+  token_path: "config/google_calendar_token.json"      # separate token
+  calendar_id: "primary"
+  timezone: "Europe/Warsaw"
+  default_interview_duration_minutes: 60
+  create_calendar_events: true          # must be true to allow event creation
+  add_reminders: true
+  reminder_minutes_before: [1440, 60]  # 24 h and 1 h before
+```
+
+4. The first time you create a Calendar event, a browser window will open for OAuth authorisation.
+   The token is saved to `config/google_calendar_token.json` (gitignored).
+
+#### OAuth scope
+
+```
+https://www.googleapis.com/auth/calendar.events
+```
+
+This scope allows creating, updating, and deleting events in your calendar. It does **not**
+allow reading other people's calendars or accessing calendar settings.
+
+#### Privacy and security notes
+
+- `config/google_calendar_token.json` and `config/google_credentials.json` are gitignored.
+  **Never commit them.**
+- Calendar events are only created after you check the _Create calendar event_ checkbox and
+  confirm — there is no background or automatic event creation.
+- The `calendar.create_calendar_events` setting must be `true` (opt-in) for event creation
+  to be allowed at all.
+- Setting `create_calendar_events: false` (the default) disables the checkbox in the UI even
+  if the calendar integration is otherwise enabled.
+
+#### Interview data stored locally
+
+Interviews are saved to `data/interviews.json` (gitignored). Fields:
+
+| Field | Description |
+|---|---|
+| `id` | UUID |
+| `application_id` | Link to `Application` |
+| `interview_at` | Scheduled datetime (UTC) |
+| `duration_minutes` | Duration |
+| `interview_type` | `phone` / `video` / `onsite` / `technical` / `hr` / `unknown` |
+| `status` | `scheduled` / `completed` / `cancelled` / `rescheduled` |
+| `source` | `manual` / `gmail` / `calendar` |
+| `calendar_event_id` | Google Calendar event id (empty when no event created) |

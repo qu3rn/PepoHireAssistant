@@ -6,11 +6,12 @@ import json
 import os
 from pathlib import Path
 
-from cv_sender.models import Application, EmailMatch, Offer
+from cv_sender.models import Application, EmailMatch, Interview, Offer
 
 _DEFAULT_OFFERS = Path(os.getenv("OFFERS_PATH", "data/offers.json"))
 _DEFAULT_APPLICATIONS = Path(os.getenv("APPLICATIONS_PATH", "data/applications.json"))
 _DEFAULT_EMAIL_MATCHES = Path(os.getenv("EMAIL_MATCHES_PATH", "data/email_matches.json"))
+_DEFAULT_INTERVIEWS = Path(os.getenv("INTERVIEWS_PATH", "data/interviews.json"))
 
 
 # ---------------------------------------------------------------------------
@@ -163,3 +164,41 @@ def update_email_match(match: EmailMatch, path: Path | None = None) -> None:
     matches = load_email_matches(path)
     updated = [match if m.id == match.id else m for m in matches]
     save_email_matches(updated, path)
+
+
+# ---------------------------------------------------------------------------
+# Interviews
+# ---------------------------------------------------------------------------
+
+
+def load_interviews(path: Path | None = None) -> list[Interview]:
+    """Load all interviews from storage."""
+    raw = _read_json(path or _DEFAULT_INTERVIEWS)
+    return [Interview.model_validate(item) for item in raw]
+
+
+def save_interviews(interviews: list[Interview], path: Path | None = None) -> None:
+    """Persist all interviews to storage."""
+    _write_json(
+        path or _DEFAULT_INTERVIEWS,
+        [i.model_dump(mode="json") for i in interviews],
+    )
+
+
+def add_interview(interview: Interview, path: Path | None = None) -> None:
+    """Append *interview* to storage."""
+    interviews = load_interviews(path)
+    interviews.append(interview)
+    save_interviews(interviews, path)
+
+
+def get_interview_by_id(interview_id: str, path: Path | None = None) -> Interview | None:
+    """Return the interview with *interview_id*, or ``None``."""
+    return next((i for i in load_interviews(path) if i.id == interview_id), None)
+
+
+def update_interview(interview: Interview, path: Path | None = None) -> None:
+    """Replace the stored interview that has the same id as *interview*."""
+    interviews = load_interviews(path)
+    updated = [interview if i.id == interview.id else i for i in interviews]
+    save_interviews(updated, path)

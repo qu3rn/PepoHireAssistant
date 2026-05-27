@@ -122,3 +122,25 @@ gmail:
   store_snippet: true
   # Auto-apply status suggestions without user confirmation (keep false)
   auto_update_status: false
+
+# Google Calendar integration
+calendar:
+  enabled: false
+  # Path to the OAuth 2.0 client credentials JSON (same file as Gmail)
+  credentials_path: "config/google_credentials.json"
+  # Path where the calendar OAuth token is cached after first authorisation
+  token_path: "config/google_calendar_token.json"
+  # Which calendar to create events in ("primary" = your main calendar)
+  calendar_id: "primary"
+  # Timezone used for all calendar events
+  timezone: "Europe/Warsaw"
+  # Default interview duration in minutes
+  default_interview_duration_minutes: 60
+  # Whether to allow creating Google Calendar events (false = never auto-create)
+  create_calendar_events: false
+  # Whether to add popup reminders to created events
+  add_reminders: true
+  # How many minutes before the interview to show a reminder (multiple values allowed)
+  reminder_minutes_before:
+    - 1440   # 24 hours
+    - 60     # 1 hour

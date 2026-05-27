@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Profile
@@ -138,6 +138,20 @@ class GmailConfig(BaseModel):
     auto_update_status: bool = False
 
 
+class CalendarConfig(BaseModel):
+    """Settings for the Google Calendar integration."""
+
+    enabled: bool = False
+    credentials_path: str = "config/google_credentials.json"
+    token_path: str = "config/google_calendar_token.json"
+    calendar_id: str = "primary"
+    timezone: str = "Europe/Warsaw"
+    default_interview_duration_minutes: int = 60
+    create_calendar_events: bool = False
+    add_reminders: bool = True
+    reminder_minutes_before: list[int] = Field(default_factory=lambda: [1440, 60])
+
+
 class Settings(BaseModel):
     """Application-wide search and scoring settings."""
 
@@ -157,6 +171,7 @@ class Settings(BaseModel):
     answer_templates: AnswerTemplatesConfig = AnswerTemplatesConfig()
     follow_up: FollowUpConfig = FollowUpConfig()
     gmail: GmailConfig = GmailConfig()
+    calendar: CalendarConfig = CalendarConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +214,8 @@ def load_settings(path: str | None = None) -> Settings:
         data["follow_up"] = FollowUpConfig.model_validate(data["follow_up"])
     if "gmail" in data and isinstance(data["gmail"], dict):
         data["gmail"] = GmailConfig.model_validate(data["gmail"])
+    if "calendar" in data and isinstance(data["calendar"], dict):
+        data["calendar"] = CalendarConfig.model_validate(data["calendar"])
     return Settings.model_validate(data)
 
 
