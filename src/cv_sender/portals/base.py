@@ -81,6 +81,7 @@ class BasePortalFiller(ABC):
         self.cv_path_override = cv_path_override
         self._result: FillResult | None = None
         self._step_log: StepLogger = StepLogger()
+        self._current_offer: Offer | None = None
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ class BasePortalFiller(ABC):
         )
         self._result = result
         self._step_log = StepLogger()
+        self._current_offer = offer
         _page: Page | None = None
 
         debug_record = FormFillDebugRecord(
@@ -445,6 +447,126 @@ class BasePortalFiller(ABC):
             }
         except Exception:  # noqa: BLE001
             return {}
+
+    def fill_textarea_questions(self, page: Page) -> None:  # noqa: PLR0912
+        """Detect textarea fields with question labels and fill with generated answers.
+
+        Only fills when answer generation is enabled and confidence meets threshold.
+        Appends :class:`~cv_sender.answers.GeneratedAnswerSummary` dicts to
+        ``self._result.generated_answers``.
+        """
+        cfg = self.settings.answers
+        if not cfg.enabled or self._current_offer is None or self._result is None:
+            return
+
+        from cv_sender.answers import (  # noqa: PLC0415
+            generate_answer_for_question,
+            to_summary,
+        )
+
+        try:
+            textareas = page.locator("textarea")
+            count = textareas.count()
+        except Exception:  # noqa: BLE001
+            return
+
+        for i in range(count):
+            try:
+                ta = textareas.nth(i)
+                if not ta.is_visible():
+                    continue
+                # Skip already-filled textareas
+                existing = (ta.input_value() or "").strip()
+                if existing:
+                    continue
+
+                question = self._extract_textarea_label(page, ta)
+                if not question:
+                    continue
+
+                answer_obj = generate_answer_for_question(
+                    question,
+                    self._current_offer,
+                    self.settings.answer_profile,
+                    None,
+                    self.settings.answer_templates,
+                    cfg,
+                    self.settings.lm_studio if cfg.use_llm else None,
+                    settings_techs=list(self.settings.technologies),
+                    availability_override=self.profile.availability or self.profile.notice_period,
+                    notice_period_override=self.profile.notice_period,
+                )
+
+                should_fill = bool(
+                    cfg.auto_fill_generated_answers
+                    and answer_obj.answer
+                    and answer_obj.confidence >= cfg.min_confidence_to_autofill
+                )
+
+                if should_fill:
+                    try:
+                        ta.fill(answer_obj.answer)
+                        self._step_log.log(
+                            "fill_textarea_answer",
+                            target=question[:80],
+                            message=(
+                                f"type={answer_obj.question_type}"
+                                f" confidence={answer_obj.confidence:.2f}"
+                                f" source={answer_obj.source}"
+                            ),
+                        )
+                    except Exception:  # noqa: BLE001
+                        should_fill = False
+
+                summary = to_summary(answer_obj, filled=should_fill)
+                self._result.generated_answers.append(summary.model_dump())
+                self._step_log.log(
+                    "generate_answer",
+                    target=question[:80],
+                    status="ok" if answer_obj.answer else "skipped",
+                    message=(
+                        f"confidence={answer_obj.confidence:.2f}"
+                        f" warnings={len(answer_obj.warnings)}"
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                continue
+
+    def _extract_textarea_label(self, page: Page, ta: Locator) -> str:
+        """Try to extract the question label for a textarea element."""
+        # 1. aria-label attribute
+        try:
+            aria = ta.get_attribute("aria-label") or ""
+            if aria.strip():
+                return aria.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        # 2. placeholder
+        try:
+            ph = ta.get_attribute("placeholder") or ""
+            if ph.strip():
+                return ph.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        # 3. <label for="id">
+        try:
+            ta_id = ta.get_attribute("id") or ""
+            if ta_id:
+                label_el = page.locator(f'label[for="{ta_id}"]')
+                if label_el.count():
+                    text = label_el.first.inner_text(timeout=1_000).strip()
+                    if text:
+                        return text
+        except Exception:  # noqa: BLE001
+            pass
+        # 4. preceding label sibling
+        try:
+            parent_text = ta.locator("xpath=preceding-sibling::label").last.inner_text(timeout=500)
+            if parent_text.strip():
+                return parent_text.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
 
     # ── Private helpers ───────────────────────────────────────────────────────
 

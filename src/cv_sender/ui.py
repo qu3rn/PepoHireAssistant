@@ -17,6 +17,8 @@ st.set_page_config(
 )
 
 from cv_sender.config import (  # noqa: E402  (after set_page_config)
+    AnswerGenerationConfig,
+    AnswerProfileConfig,
     LMStudioConfig,
     Profile,
     Settings,
@@ -101,6 +103,25 @@ def _render_fill_result(result: Any, offer_id: str) -> None:
         with st.expander("Form filling debug", expanded=result.status != FillStatus.FILLED):
             st.caption(f"Debug run ID: `{result.debug_run_id}`")
             _render_debug_artifacts(result.debug_run_id, result.screenshot_path)
+
+    generated = getattr(result, "generated_answers", [])
+    if generated:
+        with st.expander(f"Generated answers ({len(generated)})", expanded=False):
+            import pandas as pd
+
+            rows = [
+                {
+                    "Question": s.get("question", "")[:60],
+                    "Type": s.get("question_type", ""),
+                    "Source": s.get("source", ""),
+                    "Confidence": f"{s.get('confidence', 0):.0%}",
+                    "Filled": "✅" if s.get("filled") else "—",
+                    "Preview": s.get("answer_preview", "")[:80],
+                    "Warnings": "; ".join(s.get("warnings", [])),
+                }
+                for s in generated
+            ]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     rc1, rc2 = st.columns(2)
     if rc1.button("Retry with same filler", key=f"retry_same_{offer_id}"):
@@ -456,6 +477,28 @@ def _page_offers() -> None:
                             f"Path: `{_sel_cv_obj.path}`  {'✅' if _path_ok else '⚠️ file not found'}"
                         )
 
+            if st.button("Preview application answers", key=f"preview_answers_{offer.id}"):
+                with st.spinner("Generating preview answers…"):
+                    _preview_answers = services.preview_application_answers(offer.id)
+                if _preview_answers:
+                    for _ans in _preview_answers:
+                        _badge = "🟢" if _ans.confidence >= 0.65 else ("🟡" if _ans.confidence >= 0.4 else "🔴")
+                        st.markdown(f"**{_ans.question}** `{_ans.question_type}` {_badge}")
+                        if _ans.answer:
+                            st.text_area(
+                                "Answer",
+                                value=_ans.answer,
+                                height=80,
+                                key=f"prev_{offer.id}_{_ans.question[:20]}",
+                                disabled=True,
+                            )
+                        else:
+                            st.warning("No answer generated")
+                        for _w in _ans.warnings:
+                            st.warning(_w)
+                else:
+                    st.info("No answers generated.")
+
 
 # ---------------------------------------------------------------------------
 # Applications page
@@ -739,6 +782,37 @@ def _page_settings() -> None:
         lm_base_url = st.text_input("LM Studio base URL", value=settings.lm_studio.base_url)
         lm_model = st.text_input("LM Studio model name", value=settings.lm_studio.model)
 
+        st.subheader("Answer generation")
+        ans_enabled = st.checkbox("Enable answer generation", value=settings.answers.enabled)
+        ans_use_llm = st.checkbox("Use LM Studio for complex questions", value=settings.answers.use_llm)
+        ans_autofill = st.checkbox("Auto-fill generated answers", value=settings.answers.auto_fill_generated_answers)
+        ans_min_conf = st.slider(
+            "Min confidence to auto-fill",
+            min_value=0.0, max_value=1.0,
+            value=float(settings.answers.min_confidence_to_autofill),
+            step=0.05,
+        )
+        ans_max_chars = st.number_input(
+            "Max answer chars",
+            min_value=100, max_value=2000,
+            value=settings.answers.max_answer_chars,
+            step=50,
+        )
+
+        st.subheader("Answer profile")
+        ap_short_bio = st.text_area("Short bio", value=settings.answer_profile.short_bio, height=80)
+        ap_years = st.text_input("Years of experience", value=settings.answer_profile.years_experience)
+        ap_skills_raw = st.text_input(
+            "Strongest skills (comma-separated)",
+            value=", ".join(settings.answer_profile.strongest_skills),
+        )
+        ap_english = st.text_input("English level", value=settings.answer_profile.english_level)
+        ap_salary_b2b = st.text_input("Salary expectation B2B", value=settings.answer_profile.salary_b2b)
+        ap_salary_uop = st.text_input("Salary expectation UoP", value=settings.answer_profile.salary_uop)
+        ap_motivation = st.text_area(
+            "General motivation", value=settings.answer_profile.motivation_general, height=80
+        )
+
         submitted = st.form_submit_button("Save settings")
 
     if submitted:
@@ -758,6 +832,26 @@ def _page_settings() -> None:
                 api_key=settings.lm_studio.api_key,
                 model=lm_model,
             ),
+            answers=AnswerGenerationConfig(
+                enabled=ans_enabled,
+                use_llm=ans_use_llm,
+                auto_fill_generated_answers=ans_autofill,
+                min_confidence_to_autofill=ans_min_conf,
+                max_answer_chars=int(ans_max_chars),
+                require_review_for_low_confidence=settings.answers.require_review_for_low_confidence,
+            ),
+            answer_profile=AnswerProfileConfig(
+                short_bio=ap_short_bio,
+                years_experience=ap_years,
+                strongest_skills=[s.strip() for s in ap_skills_raw.split(",") if s.strip()],
+                industries=settings.answer_profile.industries,
+                work_style=settings.answer_profile.work_style,
+                motivation_general=ap_motivation,
+                salary_b2b=ap_salary_b2b,
+                salary_uop=ap_salary_uop,
+                english_level=ap_english,
+            ),
+            answer_templates=settings.answer_templates,
         )
         save_settings(updated)
         st.success("Settings saved to `config/settings.yaml`.")

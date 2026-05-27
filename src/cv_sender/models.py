@@ -148,6 +148,8 @@ class FillResult(BaseModel):
     screenshot_path: str = ""
     form_snapshot_path: str = ""
     step_log_path: str = ""
+    # Generated answers summary (populated when answer generation is enabled)
+    generated_answers: list[dict] = Field(default_factory=list)
 
 
 class ApplicationEvent(BaseModel):

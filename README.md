@@ -510,6 +510,53 @@ The highest-scoring profile is selected.  Ties are broken by `priority`, then by
 
 ---
 
+## Application answer generation
+
+When filling application forms, the assistant can automatically generate short answers for free-text questions (textareas) using a layered strategy.
+
+### How it works
+
+1. **Rules** — deterministic answers for salary, English level, availability, notice period
+2. **Templates** — fill-in-the-blank answers for motivation/experience questions using your `answer_profile`
+3. **LM Studio** (optional) — uses your local LLM for complex questions not covered by rules/templates
+
+### Safety rules
+
+- Answers are **never** auto-submitted; all answers should be reviewed before submission.
+- Generated answers never invent experience — only facts from `answer_profile` and the offer are used.
+- A hallucination guard warns if the answer mentions technologies not present in your profile or the offer.
+- Low-confidence answers (below `min_confidence_to_autofill`) are logged but not filled automatically.
+
+### Configuration
+
+Add to `config/settings.yaml`:
+
+```yaml
+answer_profile:
+  short_bio: "Your bio here"
+  years_experience: "5 years"
+  strongest_skills: [React, TypeScript]
+  motivation_general: "I look for product-focused teams..."
+  salary_b2b: "18000 PLN net + VAT"
+  english_level: "C1"
+```
+
+### Preview answers
+
+In the UI, open any offer card and click **"Preview application answers"** to see what answers would be generated before filling any form.
+
+### LM Studio (optional)
+
+Enable `answers.use_llm: true` in `settings.yaml`. The LLM is called only for question types not covered by rules or templates. If LM Studio is unavailable, the answer is left empty and a warning is added.
+
+### Limitations
+
+- Textarea detection relies on `<label>`, `aria-label`, or `placeholder` — complex custom form widgets may not be detected.
+- Answers are at most `max_answer_chars` (600) characters.
+- Only textareas on the initially visible page are processed; dynamically added fields may be missed.
+
+---
+
 ## Roadmap
 
 - [ ] Automated offer scraping from job boards

@@ -74,6 +74,46 @@ class FormFillingConfig(BaseModel):
     save_step_log: bool = True
 
 
+class AnswerProfileConfig(BaseModel):
+    """Candidate facts used when generating application answers."""
+
+    short_bio: str = ""
+    years_experience: str = ""
+    strongest_skills: list[str] = []
+    industries: list[str] = []
+    work_style: str = ""
+    motivation_general: str = ""
+    salary_b2b: str = ""
+    salary_uop: str = ""
+    english_level: str = ""
+
+
+class AnswerTemplatesConfig(BaseModel):
+    """Reusable fill-in-the-blank templates for common application questions."""
+
+    why_company: str = (
+        "I am interested in this role because it matches my experience with "
+        "{technologies} and gives me a chance to work on {role} challenges."
+    )
+    react_experience: str = (
+        "I have practical experience building frontend applications with "
+        "React, TypeScript and modern UI tooling."
+    )
+    availability: str = "{availability}"
+    salary: str = "{salary_expectation}"
+
+
+class AnswerGenerationConfig(BaseModel):
+    """Settings controlling automatic application answer generation."""
+
+    enabled: bool = True
+    use_llm: bool = True
+    auto_fill_generated_answers: bool = True
+    require_review_for_low_confidence: bool = True
+    min_confidence_to_autofill: float = 0.65
+    max_answer_chars: int = 600
+
+
 class Settings(BaseModel):
     """Application-wide search and scoring settings."""
 
@@ -88,6 +128,9 @@ class Settings(BaseModel):
     skip_without_salary: bool = False
     lm_studio: LMStudioConfig = LMStudioConfig()
     form_filling: FormFillingConfig = FormFillingConfig()
+    answers: AnswerGenerationConfig = AnswerGenerationConfig()
+    answer_profile: AnswerProfileConfig = AnswerProfileConfig()
+    answer_templates: AnswerTemplatesConfig = AnswerTemplatesConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +163,12 @@ def load_settings(path: str | None = None) -> Settings:
         data["lm_studio"] = LMStudioConfig.model_validate(data["lm_studio"])
     if "form_filling" in data and isinstance(data["form_filling"], dict):
         data["form_filling"] = FormFillingConfig.model_validate(data["form_filling"])
+    if "answers" in data and isinstance(data["answers"], dict):
+        data["answers"] = AnswerGenerationConfig.model_validate(data["answers"])
+    if "answer_profile" in data and isinstance(data["answer_profile"], dict):
+        data["answer_profile"] = AnswerProfileConfig.model_validate(data["answer_profile"])
+    if "answer_templates" in data and isinstance(data["answer_templates"], dict):
+        data["answer_templates"] = AnswerTemplatesConfig.model_validate(data["answer_templates"])
     return Settings.model_validate(data)
 
 
