@@ -801,4 +801,3 @@ def preview_application_answers(
         availability_override=profile.availability,
         notice_period_override=profile.notice_period,
     )
-
