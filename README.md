@@ -871,3 +871,86 @@ or personal details — to the local LLM and displays a short coaching summary.
 
 All analytics run entirely locally. No data is sent to any external service.
 The Analytics page reads from `data/applications.json`, `data/offers.json`, and `data/interviews.json`.
+
+---
+
+## Job Search Collection and Rapid Apply Queue
+
+The **Job Search** page automates finding job offers from public job boards and builds a
+prioritised apply queue so you can act on the best leads quickly.
+
+### How it works
+
+1. **Configure criteria** — set role keywords, technologies, locations, salary minimum, and which
+   boards to search (JustJoinIT, RocketJobs, NoFluffJobs, Pracuj.pl).
+2. **Collect offers** — the app fetches the public JSON APIs of each enabled board, filters by your
+   criteria, deduplicates, imports, and scores each offer automatically.
+3. **Build the queue** — offers with `decision = apply` or `maybe` that haven't been applied to yet
+   are assembled into a prioritised rapid-apply queue (sorted by score + source bonus).
+4. **Work through the queue** — open each offer, use the Bookmarklet to fill the form, then mark it
+   as Sent in the queue.
+
+### Important constraints
+
+| Rule | Detail |
+|---|---|
+| **No auto-submit ever** | The form filler always stops before the Submit button. You must click it yourself. |
+| **No login / no CAPTCHA bypass** | All collectors use only public unauthenticated endpoints. |
+| **LinkedIn is stub-only** | LinkedIn requires authentication. Use the Bookmarklet or manual URL import. |
+| **Rate limiting** | `request_delay_seconds` (default 1.5 s) adds a polite pause between paginated requests. |
+
+### CLI commands
+
+```bash
+# Collect from all enabled sources using your settings.yaml criteria
+cv-sender collect-jobs
+
+# Collect from specific sources only
+cv-sender collect-jobs --source justjoin --source rocketjobs
+
+# Use the emergency React/Frontend preset (ignores settings.yaml keywords)
+cv-sender collect-jobs --emergency
+
+# Build / refresh the apply queue from scored offers
+cv-sender build-queue
+
+# Fill the next queued offer form (never auto-submits)
+cv-sender fill-next
+```
+
+### Emergency React mode
+
+Toggle **Emergency React/Frontend mode** on the Job Search page (or pass `--emergency` to the CLI)
+to instantly pre-fill criteria for React / TypeScript / Next.js roles without touching the config file.
+
+### Configuration
+
+All options live under `job_search:` in `config/settings.yaml`:
+
+```yaml
+job_search:
+  enabled: false          # master switch
+  keywords: [React Developer, Frontend Developer]
+  technologies: [React, TypeScript, Next.js]
+  locations: [Remote, Poland]
+  seniority: [Mid, Senior]
+  contract_types: [B2B, UoP]
+  min_salary_b2b: 0       # 0 = no minimum
+  require_salary: false
+  max_offers_per_source: 30
+  max_total_offers: 100
+  exclude_keywords: [Angular, PHP, WordPress]
+  request_delay_seconds: 1.5
+  sources:
+    justjoin:    {enabled: true}
+    rocketjobs:  {enabled: true}
+    nofluffjobs: {enabled: true}
+    pracuj:      {enabled: true}
+    linkedin:    {enabled: false}   # stub only
+```
+
+### Data files
+
+| File | Contents |
+|---|---|
+| `data/apply_queue.json` | The current rapid-apply queue (auto-generated, gitignored) |

@@ -349,6 +349,141 @@ def bookmarklet_server(
 
 
 # ---------------------------------------------------------------------------
+# collect-jobs
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="collect-jobs")
+def collect_jobs(
+    sources: list[str] = typer.Option(
+        [],
+        "--source",
+        "-s",
+        help="Sources to collect from. Repeatable. Defaults to all enabled in config.",
+    ),
+    emergency: bool = typer.Option(
+        False,
+        "--emergency",
+        help="Use emergency React/Frontend preset criteria.",
+    ),
+    no_score: bool = typer.Option(False, "--no-score", help="Skip LLM scoring after import."),
+) -> None:
+    """Collect job offers from job boards and import them."""
+    from cv_sender.collectors.base import JobSearchCriteria
+    from cv_sender.config import load_settings
+    from cv_sender.job_search import run_job_collection
+
+    settings = load_settings()
+    cfg = settings.job_search
+
+    if emergency:
+        criteria = JobSearchCriteria.emergency_react()
+        rprint("[bold yellow]Emergency React/Frontend mode active.[/bold yellow]")
+    else:
+        criteria = JobSearchCriteria.from_config(cfg)
+
+    if sources:
+        active_sources = list(sources)
+    else:
+        active_sources = [n for n, s in cfg.sources.items() if s.enabled]
+
+    if not active_sources:
+        rprint("[yellow]No sources enabled. Pass --source or enable sources in settings.[/yellow]")
+        raise typer.Exit(1)
+
+    rprint(f"Collecting from: {', '.join(active_sources)}")
+    results = run_job_collection(criteria, active_sources, auto_score=not no_score)
+
+    table = Table(title="Collection results")
+    table.add_column("Source")
+    table.add_column("Collected", justify="right")
+    table.add_column("Imported", justify="right")
+    table.add_column("Duplicate", justify="right")
+    table.add_column("Skipped", justify="right")
+    table.add_column("Failed", justify="right")
+
+    for r in results:
+        table.add_row(
+            r.source,
+            str(r.collected_count),
+            str(r.imported_count),
+            str(r.duplicate_count),
+            str(r.skipped_count),
+            str(r.failed_count),
+        )
+        for err in r.errors:
+            rprint(f"  [red]Error ({r.source}):[/red] {err}")
+
+    rprint(table)
+
+
+# ---------------------------------------------------------------------------
+# build-queue
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="build-queue")
+def build_queue() -> None:
+    """Build / refresh the rapid-apply queue from scored offers."""
+    from cv_sender.apply_queue import build_apply_queue_from_offers, get_queue_stats
+
+    rprint("Building apply queue …")
+    build_apply_queue_from_offers()
+    stats = get_queue_stats()
+    rprint("[bold green]Queue built.[/bold green]")
+    for status, count in stats.items():
+        rprint(f"  {status}: {count}")
+
+
+# ---------------------------------------------------------------------------
+# fill-next
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="fill-next")
+def fill_next_queued() -> None:
+    """Fill the form for the next queued offer (never auto-submits)."""
+    from cv_sender.apply_queue import get_next_queue_item, mark_queue_item_status
+    from cv_sender.models import ApplyQueueItemStatus
+
+    item = get_next_queue_item()
+    if item is None:
+        rprint("[yellow]No items in the queue. Run [bold]build-queue[/bold] first.[/yellow]")
+        raise typer.Exit(0)
+
+    rprint(
+        f"Next: [bold]{item.title}[/bold] @ {item.company}  "
+        f"(score={item.score or 'N/A'}, priority={item.priority_score:.1f})"
+    )
+    rprint(f"URL: {item.url}")
+
+    try:
+        from cv_sender import services  # noqa: PLC0415
+        from cv_sender.storage import get_offer_by_id  # noqa: PLC0415
+
+        offer = get_offer_by_id(item.offer_id)
+        if offer is None:
+            rprint(f"[red]Offer {item.offer_id!r} not found in storage.[/red]")
+            raise typer.Exit(1)
+
+        mark_queue_item_status(item.id, ApplyQueueItemStatus.IN_PROGRESS)
+        # fill_form enforces auto_submit=False by design
+        result = services.fill_form(offer_id=item.offer_id, auto_submit=False)
+        rprint(f"Fill result: {result.status}")
+        if result.message:
+            rprint(result.message)
+
+        if result.status.value in ("success", "filled"):
+            mark_queue_item_status(item.id, ApplyQueueItemStatus.FILLED)
+        else:
+            mark_queue_item_status(item.id, ApplyQueueItemStatus.FAILED)
+    except Exception as exc:  # noqa: BLE001
+        rprint(f"[red]Error during fill: {exc}[/red]")
+        mark_queue_item_status(item.id, ApplyQueueItemStatus.FAILED)
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 

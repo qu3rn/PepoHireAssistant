@@ -6,12 +6,13 @@ import json
 import os
 from pathlib import Path
 
-from cv_sender.models import Application, EmailMatch, Interview, Offer
+from cv_sender.models import Application, ApplyQueueItem, EmailMatch, Interview, Offer
 
 _DEFAULT_OFFERS = Path(os.getenv("OFFERS_PATH", "data/offers.json"))
 _DEFAULT_APPLICATIONS = Path(os.getenv("APPLICATIONS_PATH", "data/applications.json"))
 _DEFAULT_EMAIL_MATCHES = Path(os.getenv("EMAIL_MATCHES_PATH", "data/email_matches.json"))
 _DEFAULT_INTERVIEWS = Path(os.getenv("INTERVIEWS_PATH", "data/interviews.json"))
+_DEFAULT_APPLY_QUEUE = Path(os.getenv("APPLY_QUEUE_PATH", "data/apply_queue.json"))
 
 
 # ---------------------------------------------------------------------------
@@ -202,3 +203,51 @@ def update_interview(interview: Interview, path: Path | None = None) -> None:
     interviews = load_interviews(path)
     updated = [interview if i.id == interview.id else i for i in interviews]
     save_interviews(updated, path)
+
+
+# ---------------------------------------------------------------------------
+# Apply queue
+# ---------------------------------------------------------------------------
+
+
+def load_apply_queue(path: Path | None = None) -> list[ApplyQueueItem]:
+    """Load the apply queue from storage."""
+    raw = _read_json(path or _DEFAULT_APPLY_QUEUE)
+    return [ApplyQueueItem.model_validate(item) for item in raw]
+
+
+def save_apply_queue(queue: list[ApplyQueueItem], path: Path | None = None) -> None:
+    """Persist the apply queue to storage."""
+    _write_json(
+        path or _DEFAULT_APPLY_QUEUE,
+        [item.model_dump(mode="json") for item in queue],
+    )
+
+
+def add_to_apply_queue(item: ApplyQueueItem, path: Path | None = None) -> bool:
+    """Add *item* to the queue.
+
+    Returns ``False`` without saving if an item for the same offer_id already
+    exists in a non-terminal state.
+    """
+    from cv_sender.models import ApplyQueueItemStatus  # noqa: PLC0415
+
+    queue = load_apply_queue(path)
+    terminal = {ApplyQueueItemStatus.SENT, ApplyQueueItemStatus.SKIPPED, ApplyQueueItemStatus.FAILED}
+    if any(q.offer_id == item.offer_id and q.status not in terminal for q in queue):
+        return False
+    queue.append(item)
+    save_apply_queue(queue, path)
+    return True
+
+
+def get_queue_item_by_id(item_id: str, path: Path | None = None) -> ApplyQueueItem | None:
+    """Return the queue item with *item_id*, or ``None``."""
+    return next((q for q in load_apply_queue(path) if q.id == item_id), None)
+
+
+def update_queue_item(item: ApplyQueueItem, path: Path | None = None) -> None:
+    """Replace the stored queue item that has the same id as *item*."""
+    queue = load_apply_queue(path)
+    updated = [item if q.id == item.id else q for q in queue]
+    save_apply_queue(updated, path)

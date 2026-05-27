@@ -144,3 +144,58 @@ calendar:
   reminder_minutes_before:
     - 1440   # 24 hours
     - 60     # 1 hour
+
+# Automated job offer collection from job boards
+job_search:
+  # Set to true to enable collection (disabled by default)
+  enabled: false
+  # Role keywords to search for
+  keywords:
+    - React Developer
+    - Frontend Developer
+    - Frontend Engineer
+  # Technologies to look for in offers
+  technologies:
+    - React
+    - TypeScript
+    - Next.js
+  # Preferred locations
+  locations:
+    - Remote
+    - Poland
+  # Seniority levels (leave empty to match all levels)
+  seniority:
+    - Mid
+    - Senior
+  # Contract types to accept
+  contract_types:
+    - B2B
+    - UoP
+  # Minimum B2B salary (0 = no minimum)
+  min_salary_b2b: 0
+  # Require salary to be visible (skips offers without salary information)
+  require_salary: false
+  # Maximum offers to collect per source per run
+  max_offers_per_source: 30
+  # Hard cap on total imported offers per run
+  max_total_offers: 100
+  # Keywords that disqualify an offer (case-insensitive, checked in title + description)
+  exclude_keywords:
+    - Angular
+    - PHP
+    - WordPress
+  # Seconds to sleep between paginated HTTP requests (be polite to servers)
+  request_delay_seconds: 1.5
+  # Per-source toggles
+  sources:
+    justjoin:
+      enabled: true
+    rocketjobs:
+      enabled: true
+    nofluffjobs:
+      enabled: true
+    pracuj:
+      enabled: true
+    # LinkedIn requires login — use the Bookmarklet or manual URL import instead
+    linkedin:
+      enabled: false
