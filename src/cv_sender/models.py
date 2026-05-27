@@ -298,3 +298,37 @@ class Interview(BaseModel):
     status: InterviewStatus = InterviewStatus.SCHEDULED
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Apply queue
+# ---------------------------------------------------------------------------
+
+
+class ApplyQueueItemStatus(StrEnum):
+    QUEUED = "queued"
+    IN_PROGRESS = "in_progress"
+    FILLED = "filled"
+    SENT = "sent"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+class ApplyQueueItem(BaseModel):
+    """An entry in the rapid-apply queue."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    offer_id: str
+    company: str = ""
+    title: str = ""
+    source: str = ""
+    url: str = ""
+    score: int | None = None
+    priority_score: float = 0.0
+    selected_cv_id: str = ""
+    selected_cv_name: str = ""
+    status: ApplyQueueItemStatus = ApplyQueueItemStatus.QUEUED
+    reasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

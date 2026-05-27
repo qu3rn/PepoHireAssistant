@@ -152,6 +152,36 @@ class CalendarConfig(BaseModel):
     reminder_minutes_before: list[int] = Field(default_factory=lambda: [1440, 60])
 
 
+class JobSearchSourceConfig(BaseModel):
+    enabled: bool = True
+
+
+class JobSearchConfig(BaseModel):
+    """Settings for the automated job-offer collection feature."""
+
+    enabled: bool = False
+    keywords: list[str] = Field(default_factory=lambda: ["React Developer", "Frontend Developer"])
+    technologies: list[str] = Field(default_factory=lambda: ["React", "TypeScript", "Next.js"])
+    locations: list[str] = Field(default_factory=lambda: ["Remote", "Poland"])
+    seniority: list[str] = Field(default_factory=lambda: ["Mid", "Senior"])
+    contract_types: list[str] = Field(default_factory=lambda: ["B2B", "UoP"])
+    min_salary_b2b: int = 0
+    require_salary: bool = False
+    max_offers_per_source: int = 30
+    max_total_offers: int = 100
+    exclude_keywords: list[str] = Field(default_factory=lambda: ["Angular", "PHP", "WordPress"])
+    request_delay_seconds: float = 1.5
+    sources: dict[str, JobSearchSourceConfig] = Field(
+        default_factory=lambda: {
+            "justjoin": JobSearchSourceConfig(enabled=True),
+            "rocketjobs": JobSearchSourceConfig(enabled=True),
+            "nofluffjobs": JobSearchSourceConfig(enabled=True),
+            "pracuj": JobSearchSourceConfig(enabled=True),
+            "linkedin": JobSearchSourceConfig(enabled=False),
+        }
+    )
+
+
 class Settings(BaseModel):
     """Application-wide search and scoring settings."""
 
@@ -172,6 +202,7 @@ class Settings(BaseModel):
     follow_up: FollowUpConfig = FollowUpConfig()
     gmail: GmailConfig = GmailConfig()
     calendar: CalendarConfig = CalendarConfig()
+    job_search: JobSearchConfig = JobSearchConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +247,14 @@ def load_settings(path: str | None = None) -> Settings:
         data["gmail"] = GmailConfig.model_validate(data["gmail"])
     if "calendar" in data and isinstance(data["calendar"], dict):
         data["calendar"] = CalendarConfig.model_validate(data["calendar"])
+    if "job_search" in data and isinstance(data["job_search"], dict):
+        js = data["job_search"]
+        if "sources" in js and isinstance(js["sources"], dict):
+            js["sources"] = {
+                k: JobSearchSourceConfig.model_validate(v) if isinstance(v, dict) else v
+                for k, v in js["sources"].items()
+            }
+        data["job_search"] = JobSearchConfig.model_validate(js)
     return Settings.model_validate(data)
 
 

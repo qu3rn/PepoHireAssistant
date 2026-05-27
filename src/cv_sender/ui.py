@@ -52,7 +52,7 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Bookmarklet", "Debug"]
+_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Bookmarklet", "Debug"]
 
 st.sidebar.title("cv-sender")
 page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
@@ -1707,6 +1707,263 @@ def _page_analytics() -> None:  # noqa: PLR0912, PLR0914, PLR0915
 # ---------------------------------------------------------------------------
 
 
+def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
+    st.title("Job Search — Rapid Apply")
+
+    from cv_sender.apply_queue import (  # noqa: PLC0415
+        build_apply_queue_from_offers,
+        get_queue_stats,
+        mark_queue_item_status,
+        remove_from_queue,
+    )
+    from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+    from cv_sender.config import load_settings, save_settings  # noqa: PLC0415
+    from cv_sender.job_search import run_job_collection  # noqa: PLC0415
+    from cv_sender.models import ApplyQueueItemStatus  # noqa: PLC0415
+    from cv_sender.storage import load_apply_queue  # noqa: PLC0415
+
+    settings = load_settings()
+    cfg = settings.job_search
+
+    # ------------------------------------------------------------------ #
+    # Tab layout
+    # ------------------------------------------------------------------ #
+    tab_search, tab_queue = st.tabs(["Search Criteria & Collection", "Rapid Apply Queue"])
+
+    # ================================================================== #
+    # Tab 1 — Search criteria
+    # ================================================================== #
+    with tab_search:
+        st.subheader("Search criteria")
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            enabled = st.checkbox("Job search enabled", value=cfg.enabled)
+            emergency = st.checkbox(
+                "Emergency React/Frontend mode",
+                value=False,
+                help="Pre-fill criteria for React / TypeScript / Next.js roles",
+            )
+            if emergency:
+                preset = JobSearchCriteria.emergency_react()
+                keywords_default = ", ".join(preset.keywords)
+                techs_default = ", ".join(preset.technologies)
+                locs_default = ", ".join(preset.locations)
+                senior_default = ", ".join(preset.seniority)
+                contracts_default = ", ".join(preset.contract_types)
+                exclude_default = ", ".join(preset.exclude_keywords)
+            else:
+                keywords_default = ", ".join(cfg.keywords)
+                techs_default = ", ".join(cfg.technologies)
+                locs_default = ", ".join(cfg.locations)
+                senior_default = ", ".join(cfg.seniority)
+                contracts_default = ", ".join(cfg.contract_types)
+                exclude_default = ", ".join(cfg.exclude_keywords)
+
+            keywords_raw = st.text_input("Role keywords (comma-separated)", value=keywords_default)
+            technologies_raw = st.text_input("Technologies (comma-separated)", value=techs_default)
+
+        with col_b:
+            locations_raw = st.text_input("Locations (comma-separated)", value=locs_default)
+            seniority_raw = st.text_input("Seniority levels (comma-separated)", value=senior_default)
+            contracts_raw = st.text_input("Contract types (comma-separated)", value=contracts_default)
+            exclude_raw = st.text_input("Exclude keywords (comma-separated)", value=exclude_default)
+
+        col_c, col_d = st.columns(2)
+        with col_c:
+            min_salary = st.number_input(
+                "Min salary B2B (0 = no minimum)",
+                min_value=0,
+                step=1000,
+                value=cfg.min_salary_b2b,
+            )
+            require_salary = st.checkbox("Require salary visible", value=cfg.require_salary)
+        with col_d:
+            max_per_source = st.number_input(
+                "Max offers per source",
+                min_value=1,
+                max_value=200,
+                value=cfg.max_offers_per_source,
+            )
+            max_total = st.number_input(
+                "Max total offers",
+                min_value=1,
+                max_value=1000,
+                value=cfg.max_total_offers,
+            )
+
+        st.subheader("Sources")
+        source_cols = st.columns(5)
+        src_names = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj", "linkedin"]
+        src_enabled: dict[str, bool] = {}
+        for i, name in enumerate(src_names):
+            with source_cols[i]:
+                default_val = cfg.sources.get(name, None)
+                default_enabled = default_val.enabled if default_val else (name != "linkedin")
+                src_enabled[name] = st.checkbox(name, value=default_enabled)
+
+        col_save, col_collect = st.columns(2)
+        with col_save:
+            if st.button("Save criteria"):
+                from cv_sender.config import JobSearchSourceConfig  # noqa: PLC0415
+
+                def _split(s: str) -> list[str]:
+                    return [x.strip() for x in s.split(",") if x.strip()]
+
+                cfg_new = cfg.model_copy(
+                    update={
+                        "enabled": enabled,
+                        "keywords": _split(keywords_raw),
+                        "technologies": _split(technologies_raw),
+                        "locations": _split(locations_raw),
+                        "seniority": _split(seniority_raw),
+                        "contract_types": _split(contracts_raw),
+                        "exclude_keywords": _split(exclude_raw),
+                        "min_salary_b2b": int(min_salary),
+                        "require_salary": require_salary,
+                        "max_offers_per_source": int(max_per_source),
+                        "max_total_offers": int(max_total),
+                        "sources": {
+                            n: JobSearchSourceConfig(enabled=v) for n, v in src_enabled.items()
+                        },
+                    }
+                )
+                new_settings = settings.model_copy(update={"job_search": cfg_new})
+                save_settings(new_settings)
+                st.success("Criteria saved.")
+
+        with col_collect:
+            if st.button("Collect offers now", type="primary"):
+                def _split(s: str) -> list[str]:  # noqa: F811
+                    return [x.strip() for x in s.split(",") if x.strip()]
+
+                criteria = JobSearchCriteria(
+                    keywords=_split(keywords_raw),
+                    technologies=_split(technologies_raw),
+                    locations=_split(locations_raw),
+                    seniority=_split(seniority_raw),
+                    contract_types=_split(contracts_raw),
+                    min_salary_b2b=int(min_salary),
+                    require_salary=require_salary,
+                    max_offers_per_source=int(max_per_source),
+                    max_total_offers=int(max_total),
+                    exclude_keywords=_split(exclude_raw),
+                )
+                active_sources = [n for n, v in src_enabled.items() if v]
+
+                with st.spinner(f"Collecting from: {', '.join(active_sources)} …"):
+                    results = run_job_collection(criteria, active_sources, auto_score=True)
+
+                total_imported = sum(r.imported_count for r in results)
+                total_dupes = sum(r.duplicate_count for r in results)
+                total_skipped = sum(r.skipped_count for r in results)
+
+                if results:
+                    import pandas as pd  # noqa: PLC0415
+
+                    rows = [
+                        {
+                            "Source": r.source,
+                            "Collected": r.collected_count,
+                            "Imported": r.imported_count,
+                            "Duplicate": r.duplicate_count,
+                            "Skipped": r.skipped_count,
+                            "Failed": r.failed_count,
+                            "Errors": "; ".join(r.errors) if r.errors else "",
+                        }
+                        for r in results
+                    ]
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+                st.success(
+                    f"Done! Imported: **{total_imported}**, duplicates: {total_dupes}, skipped: {total_skipped}"
+                )
+
+    # ================================================================== #
+    # Tab 2 — Rapid apply queue
+    # ================================================================== #
+    with tab_queue:
+        st.subheader("Rapid Apply Queue")
+        col_rebuild, col_stats = st.columns([2, 3])
+        with col_rebuild:
+            if st.button("Rebuild queue from offers"):
+                with st.spinner("Building queue …"):
+                    build_apply_queue_from_offers()
+                st.success("Queue rebuilt.")
+                st.rerun()
+
+        queue = load_apply_queue()
+        stats = get_queue_stats()
+        with col_stats:
+            stat_cols = st.columns(len(ApplyQueueItemStatus))
+            for i, status in enumerate(ApplyQueueItemStatus):
+                with stat_cols[i]:
+                    st.metric(status.value, stats.get(status, 0))
+
+        if not queue:
+            st.info("Queue is empty. Click **Rebuild queue** or collect offers first.")
+            return
+
+        import pandas as pd  # noqa: PLC0415
+
+        active_statuses = {ApplyQueueItemStatus.QUEUED, ApplyQueueItemStatus.IN_PROGRESS}
+        active_items = [q for q in queue if q.status in active_statuses]
+
+        if not active_items:
+            st.info("No active items in the queue. All done!")
+        else:
+            st.markdown(f"**{len(active_items)} active** items in queue (sorted by priority)")
+            for item in sorted(active_items, key=lambda x: x.priority_score, reverse=True):
+                with st.expander(
+                    f"[{item.priority_score:.0f}] {item.title} @ {item.company} — {item.source}"
+                ):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.markdown(f"**Score:** {item.score or 'N/A'}")
+                        st.markdown(f"**Priority:** {item.priority_score:.1f}")
+                        if item.url:
+                            st.markdown(f"[Open offer]({item.url})")
+                    with col2:
+                        if item.reasons:
+                            st.markdown("**Reasons:** " + ", ".join(item.reasons[:3]))
+                        if item.warnings:
+                            st.warning("Warnings: " + "; ".join(item.warnings[:3]))
+                    with col3:
+                        btn_fill = st.button("Fill form", key=f"fill_{item.id}")
+                        btn_send = st.button("Mark sent", key=f"sent_{item.id}")
+                        btn_skip = st.button("Skip", key=f"skip_{item.id}")
+
+                    if btn_fill:
+                        mark_queue_item_status(item.id, ApplyQueueItemStatus.IN_PROGRESS)
+                        st.info("Marked as In Progress. Open the offer URL and use the Bookmarklet to fill.")
+                        st.rerun()
+                    if btn_send:
+                        mark_queue_item_status(item.id, ApplyQueueItemStatus.SENT)
+                        st.success("Marked as Sent.")
+                        st.rerun()
+                    if btn_skip:
+                        mark_queue_item_status(item.id, ApplyQueueItemStatus.SKIPPED)
+                        st.rerun()
+
+        with st.expander("Show completed / skipped items"):
+            done_items = [q for q in queue if q.status not in active_statuses]
+            if done_items:
+                rows = [
+                    {
+                        "Status": q.status,
+                        "Title": q.title,
+                        "Company": q.company,
+                        "Source": q.source,
+                        "Score": q.score or "",
+                        "Priority": f"{q.priority_score:.1f}",
+                    }
+                    for q in done_items
+                ]
+                st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            else:
+                st.info("No completed items yet.")
+
+
 def _page_bookmarklet() -> None:
     from cv_sender.bookmarklet_server import BOOKMARKLET_JS
 
@@ -1864,6 +2121,8 @@ elif page == "Interviews":
     _page_interviews()
 elif page == "Analytics":
     _page_analytics()
+elif page == "Job Search":
+    _page_job_search()
 elif page == "Bookmarklet":
     _page_bookmarklet()
 elif page == "Debug":
