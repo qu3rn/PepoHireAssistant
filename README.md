@@ -747,4 +747,3 @@ Data is stored in `data/email_matches.json` (gitignored).
 - Gmail API quota: ~1 billion units/day for free; scanning 100 messages uses ~200 units.
 - Calendar events are **not** created automatically even when an interview invitation is detected.
 - Only the `gmail.readonly` scope is requested; modifying labels is not supported.
-
