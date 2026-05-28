@@ -156,6 +156,19 @@ class JobSearchSourceConfig(BaseModel):
     enabled: bool = True
 
 
+class LanguageMatchingConfig(BaseModel):
+    enabled: bool = True
+    languages: list[str] = Field(default_factory=lambda: ["pl", "en"])
+
+
+class EmergencyReactModeConfig(BaseModel):
+    enabled: bool = False
+    accept_needs_review: bool = True
+    reject_obvious_non_it: bool = True
+    min_relevance_score: int = 50
+    needs_review_score: int = 25
+
+
 class JobSearchConfig(BaseModel):
     """Settings for the automated job-offer collection feature."""
 
@@ -171,6 +184,8 @@ class JobSearchConfig(BaseModel):
     max_total_offers: int = 100
     exclude_keywords: list[str] = Field(default_factory=lambda: ["Angular", "PHP", "WordPress"])
     request_delay_seconds: float = 1.5
+    language_matching: LanguageMatchingConfig = LanguageMatchingConfig()
+    emergency_react_mode: EmergencyReactModeConfig = EmergencyReactModeConfig()
     sources: dict[str, JobSearchSourceConfig] = Field(
         default_factory=lambda: {
             "justjoin": JobSearchSourceConfig(enabled=True),

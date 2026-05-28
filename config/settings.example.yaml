@@ -186,6 +186,17 @@ job_search:
     - WordPress
   # Seconds to sleep between paginated HTTP requests (be polite to servers)
   request_delay_seconds: 1.5
+  language_matching:
+    enabled: true
+    languages:
+      - pl
+      - en
+  emergency_react_mode:
+    enabled: false
+    accept_needs_review: true
+    reject_obvious_non_it: true
+    min_relevance_score: 50
+    needs_review_score: 25
   # Per-source toggles
   sources:
     justjoin:

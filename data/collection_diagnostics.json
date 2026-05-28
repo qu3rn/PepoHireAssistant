@@ -556,5 +556,131 @@
     "suggestions": [
       "No offers were collected. Check that the selected sources are reachable."
     ]
+  },
+  {
+    "run_id": "25540a84-e5cd-4a05-b8cc-038d5891486f",
+    "started_at": "2026-05-28T10:23:12.121766Z",
+    "finished_at": "2026-05-28T10:23:12.128009Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "status": "ok",
+        "raw_found_count": 5,
+        "found_count": 1,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "1190ddbd-dfed-4366-9730-02dc74032d4a",
+    "started_at": "2026-05-28T10:23:29.380415Z",
+    "finished_at": "2026-05-28T10:23:29.386541Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "status": "ok",
+        "raw_found_count": 5,
+        "found_count": 1,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "8b6bd598-2f8b-4a63-8276-cfbc98c75c07",
+    "started_at": "2026-05-28T10:23:45.883938Z",
+    "finished_at": "2026-05-28T10:23:45.890138Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "status": "ok",
+        "raw_found_count": 5,
+        "found_count": 1,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
   }
 ]
