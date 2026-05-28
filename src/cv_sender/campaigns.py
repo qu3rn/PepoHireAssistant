@@ -39,6 +39,7 @@ REACT_SPRINT_PRESET: dict = {
     "technologies": ["React", "TypeScript", "Next.js"],
     "locations": ["Remote", "Poland"],
     "sources": ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"],
+    "collector_mode": "playwright",
     "min_score": 60,
     "include_maybe": True,
     "include_follow_ups": False,
@@ -60,6 +61,7 @@ def create_campaign(
     technologies: list[str] | None = None,
     locations: list[str] | None = None,
     sources: list[str] | None = None,
+    collector_mode: str = "",
     min_score: int = 0,
     min_salary_b2b: int = 0,
     require_salary: bool = False,
@@ -80,6 +82,7 @@ def create_campaign(
         technologies=technologies or [],
         locations=locations or [],
         sources=sources or [],
+        collector_mode=collector_mode,
         min_score=min_score,
         min_salary_b2b=min_salary_b2b,
         require_salary=require_salary,
@@ -101,6 +104,20 @@ def get_active_campaigns() -> list[Campaign]:
 def get_campaign(campaign_id: str) -> Campaign | None:
     """Return a campaign by id."""
     return get_campaign_by_id(campaign_id)
+
+
+def resolve_campaign_collector_mode(campaign: Campaign, global_collector_mode: str | None = None) -> str:
+    """Resolve effective collector mode for campaign collection actions."""
+    if campaign.collector_mode:
+        return campaign.collector_mode
+    if global_collector_mode:
+        return global_collector_mode
+    try:
+        from cv_sender.config import load_settings  # noqa: PLC0415
+
+        return load_settings().job_search.collector_mode or "playwright"
+    except Exception:  # noqa: BLE001
+        return "playwright"
 
 
 def update_campaign_status(

@@ -173,6 +173,8 @@ class JobSearchConfig(BaseModel):
     """Settings for the automated job-offer collection feature."""
 
     enabled: bool = False
+    collector_mode: str = "playwright"
+    fallback_to_playwright: bool = True
     keywords: list[str] = Field(default_factory=lambda: ["React Developer", "Frontend Developer"])
     technologies: list[str] = Field(default_factory=lambda: ["React", "TypeScript", "Next.js"])
     locations: list[str] = Field(default_factory=lambda: ["Remote", "Poland"])

@@ -845,5 +845,339 @@
     "decisions": [],
     "global_warnings": [],
     "suggestions": []
+  },
+  {
+    "run_id": "46d3aff9-0da6-4d91-8281-153d39b71bbf",
+    "started_at": "2026-05-28T12:07:31.914479Z",
+    "finished_at": "2026-05-28T12:07:31.914524Z",
+    "criteria": {
+      "keywords": [
+        "React"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript",
+        "Next.js"
+      ],
+      "locations": [
+        "Remote"
+      ],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "api_static",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "api/static",
+        "status": "ok",
+        "raw_found_count": 3,
+        "job_offer_url_count": 2,
+        "found_count": 2,
+        "imported_count": 1,
+        "skipped_count": 1,
+        "accepted_count": 1,
+        "duplicate_count": 0,
+        "rejected_count": 1,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.0
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "71944b0b-e426-4608-a7f8-2b2500e6ab61",
+    "started_at": "2026-05-28T12:07:31.916966Z",
+    "finished_at": "2026-05-28T12:07:31.916991Z",
+    "criteria": {
+      "keywords": [
+        "React"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript",
+        "Next.js"
+      ],
+      "locations": [
+        "Remote"
+      ],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "hybrid",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "hybrid_api",
+        "status": "ok",
+        "raw_found_count": 5,
+        "job_offer_url_count": 3,
+        "found_count": 3,
+        "imported_count": 2,
+        "skipped_count": 1,
+        "accepted_count": 2,
+        "duplicate_count": 0,
+        "rejected_count": 1,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.0
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "1e064ba9-f23f-4abe-9124-a0f9ff9d6dba",
+    "started_at": "2026-05-28T12:07:31.925091Z",
+    "finished_at": "2026-05-28T12:07:31.925192Z",
+    "criteria": {
+      "keywords": [
+        "React"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript",
+        "Next.js"
+      ],
+      "locations": [
+        "Remote"
+      ],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "hybrid",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "hybrid_playwright_fallback",
+        "status": "ok",
+        "raw_found_count": 4,
+        "job_offer_url_count": 0,
+        "found_count": 0,
+        "imported_count": 1,
+        "skipped_count": 4,
+        "accepted_count": 1,
+        "duplicate_count": 0,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.0
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [
+      "justjoin: API/static collector returned 0; Playwright fallback was used."
+    ],
+    "suggestions": []
+  },
+  {
+    "run_id": "a3cc26f7-6f1d-491c-9f18-c97e24383952",
+    "started_at": "2026-05-28T12:07:32.198862Z",
+    "finished_at": "2026-05-28T12:07:32.205179Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 5,
+        "job_offer_url_count": 1,
+        "found_count": 1,
+        "imported_count": 1,
+        "skipped_count": 4,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "ffa18207-efa4-4956-8deb-92779c588dbf",
+    "started_at": "2026-05-28T12:09:36.849650Z",
+    "finished_at": "2026-05-28T12:10:40.368328Z",
+    "criteria": {
+      "keywords": [
+        "React Developer",
+        "Frontend Developer",
+        "Frontend Engineer"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript",
+        "Next.js"
+      ],
+      "locations": [
+        "Remote",
+        "Poland"
+      ],
+      "seniority": [
+        "Mid",
+        "Senior"
+      ],
+      "contract_types": [
+        "B2B",
+        "UoP"
+      ],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_import",
+      "sources": [
+        "justjoin",
+        "rocketjobs",
+        "nofluffjobs",
+        "pracuj"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 1673,
+        "job_offer_url_count": 50,
+        "found_count": 50,
+        "imported_count": 38,
+        "skipped_count": 3,
+        "accepted_count": 38,
+        "duplicate_count": 143,
+        "rejected_count": 1623,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 20.72
+      },
+      {
+        "source": "rocketjobs",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 1197,
+        "job_offer_url_count": 50,
+        "found_count": 50,
+        "imported_count": 0,
+        "skipped_count": 50,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 1147,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 18.83
+      },
+      {
+        "source": "nofluffjobs",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 490,
+        "job_offer_url_count": 50,
+        "found_count": 50,
+        "imported_count": 4,
+        "skipped_count": 28,
+        "accepted_count": 4,
+        "duplicate_count": 103,
+        "rejected_count": 440,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 18.69
+      },
+      {
+        "source": "pracuj",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 406,
+        "job_offer_url_count": 50,
+        "found_count": 50,
+        "imported_count": 9,
+        "skipped_count": 41,
+        "accepted_count": 9,
+        "duplicate_count": 55,
+        "rejected_count": 356,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 5.28
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [
+      "justjoin: skipped 3 job_offer URL(s) by relevance filter before import.",
+      "https://justjoin.it/job-offer/devapo-react-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/bluesoft-react-developer-warszawa-javascript-8ab410fd: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/infakt-react-developer-krakow-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/itlt-react-native-developer-warszawa-mobile: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/do-ok-life-changing-software-services-react-native-developer-wroclaw-mobile-2470e7f5: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/dealsy-sp-z-o-o--react-native-developer-warszawa-mobile-9df81d73: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/b2bnetwork-react-native-developer-warszawa-mobile: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/antal-sp-z-o-o--frontend-developer-react-krakow-ux: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/gmi-software-react-native-developer-warszawa-mobile-ba6b1590: An offer with this URL already exists in storage.",
+      "rocketjobs: skipped 50 job_offer URL(s) by relevance filter before import.",
+      "nofluffjobs: skipped 28 job_offer URL(s) by relevance filter before import.",
+      "https://nofluffjobs.com/job/senior-react-native-developer-iteamly-warszawa: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-native-mobile-developer-e-mobility-energy-spyrosoft-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/programista-frontend-programistka-frontend-react-astek-polska-warszawa: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-full-stack-developer-react-node-js-green-minds-remote-1: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-developer-wakacje-pl-gdansk: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-frontend-developer-iteamly-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-software-developer-react-branza-e-commerce-edge-one-solutions-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-developer-react-antal-krakow: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-fullstack-developer-with-java-and-react-dcg-gdynia: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/mid-fullstack-developer-net-react-euvic-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-software-developer-react-js-node-js-cdq-poland-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/fullstack-developer-react-node-js-ai-fintech-green-minds-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-full-stack-developer-react-node-js-green-minds-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-developer-f-m-x-sii-polska-poznan: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-developer-react-mindpal-gliwice: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/full-stack-developer-node-js-react-capgemini-polska-krakow: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-fullstack-developer-python-and-react-iteamly-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-developer-react-verita-hr-krakow: An offer with this URL already exists in storage.",
+      "pracuj: skipped 41 job_offer URL(s) by relevance filter before import."
+    ],
+    "suggestions": []
   }
 ]

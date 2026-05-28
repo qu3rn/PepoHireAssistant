@@ -366,12 +366,17 @@ def collect_jobs(
         "--emergency",
         help="Use emergency React/Frontend preset criteria.",
     ),
+    mode: str | None = typer.Option(
+        None,
+        "--mode",
+        help="Collector mode override: playwright | api | static | hybrid",
+    ),
     no_score: bool = typer.Option(False, "--no-score", help="Skip LLM scoring after import."),
 ) -> None:
     """Collect job offers from job boards and import them."""
     from cv_sender.collectors.base import JobSearchCriteria
     from cv_sender.config import load_settings
-    from cv_sender.job_search import run_job_collection
+    from cv_sender.job_search import collect_jobs as dispatch_collect_jobs
 
     settings = load_settings()
     cfg = settings.job_search
@@ -391,30 +396,40 @@ def collect_jobs(
         rprint("[yellow]No sources enabled. Pass --source or enable sources in settings.[/yellow]")
         raise typer.Exit(1)
 
+    resolved_mode = mode or ("playwright" if emergency else (getattr(cfg, "collector_mode", "playwright") or "playwright"))
     rprint(f"Collecting from: {', '.join(active_sources)}")
-    results = run_job_collection(criteria, active_sources, auto_score=not no_score)
+    rprint(f"Collector mode: {resolved_mode}")
+    report = dispatch_collect_jobs(
+        criteria,
+        mode=resolved_mode,
+        source_names=active_sources,
+        auto_score=not no_score,
+    )
 
     table = Table(title="Collection results")
     table.add_column("Source")
+    table.add_column("Collector")
     table.add_column("Raw", justify="right")
-    table.add_column("Collected", justify="right")
+    table.add_column("Job URLs", justify="right")
     table.add_column("Imported", justify="right")
     table.add_column("Duplicate", justify="right")
     table.add_column("Skipped", justify="right")
     table.add_column("Failed", justify="right")
 
-    for r in results:
+    for r in report.source_summaries:
         table.add_row(
             r.source,
+            r.collector_used or "",
             str(r.raw_found_count),
-            str(r.collected_count),
-            str(r.imported_count),
+            str(r.job_offer_url_count or r.found_count),
+            str(r.imported_count or r.accepted_count),
             str(r.duplicate_count),
-            str(r.skipped_count),
+            str(r.skipped_count or r.rejected_count),
             str(r.failed_count),
         )
-        for err in r.errors:
-            rprint(f"  [red]Error ({r.source}):[/red] {err}")
+
+    for warning in report.global_warnings:
+        rprint(f"  [yellow]Warning:[/yellow] {warning}")
 
     rprint(table)
 
