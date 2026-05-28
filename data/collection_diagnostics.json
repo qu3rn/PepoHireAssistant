@@ -1,321 +1,5 @@
 [
   {
-    "run_id": "8028d46c-5c12-4e3a-8704-3ad6a0b30e57",
-    "started_at": "2026-05-27T21:39:25.071798Z",
-    "finished_at": "2026-05-27T21:39:26.615449Z",
-    "criteria": {
-      "keywords": [
-        "React Developer",
-        "Frontend Developer"
-      ],
-      "technologies": [
-        "React",
-        "TypeScript",
-        "Next.js"
-      ],
-      "locations": [
-        "remote",
-        "Warszawa",
-        "Kraków"
-      ],
-      "min_salary_b2b": 0,
-      "require_salary": false,
-      "exclude_keywords": []
-    },
-    "source_summaries": [
-      {
-        "source": "justjoin",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "rocketjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "nofluffjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 1.54
-      },
-      {
-        "source": "pracuj",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      }
-    ],
-    "decisions": [],
-    "global_warnings": [],
-    "suggestions": [
-      "No offers were collected. Check that the selected sources are reachable."
-    ]
-  },
-  {
-    "run_id": "8d037ab0-0f65-40c2-b3be-c899f96a74c3",
-    "started_at": "2026-05-27T21:39:53.063986Z",
-    "finished_at": "2026-05-27T21:39:54.746242Z",
-    "criteria": {
-      "keywords": [
-        "React Developer",
-        "Frontend Developer",
-        "Frontend Engineer"
-      ],
-      "technologies": [
-        "React",
-        "TypeScript",
-        "Next.js"
-      ],
-      "locations": [
-        "Remote",
-        "Poland"
-      ],
-      "min_salary_b2b": 0,
-      "require_salary": false,
-      "exclude_keywords": []
-    },
-    "source_summaries": [
-      {
-        "source": "justjoin",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "rocketjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "nofluffjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 1.68
-      },
-      {
-        "source": "pracuj",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      }
-    ],
-    "decisions": [],
-    "global_warnings": [],
-    "suggestions": [
-      "No offers were collected. Check that the selected sources are reachable."
-    ]
-  },
-  {
-    "run_id": "d524fb5a-1c10-4a6d-b255-097af4deb54f",
-    "started_at": "2026-05-27T21:40:03.765151Z",
-    "finished_at": "2026-05-27T21:40:05.165842Z",
-    "criteria": {
-      "keywords": [
-        "React Developer",
-        "Frontend Developer",
-        "Frontend Engineer"
-      ],
-      "technologies": [
-        "React",
-        "TypeScript",
-        "Next.js"
-      ],
-      "locations": [
-        "Remote",
-        "Poland"
-      ],
-      "min_salary_b2b": 0,
-      "require_salary": false,
-      "exclude_keywords": []
-    },
-    "source_summaries": [
-      {
-        "source": "justjoin",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "rocketjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "nofluffjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 1.4
-      },
-      {
-        "source": "pracuj",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      }
-    ],
-    "decisions": [],
-    "global_warnings": [],
-    "suggestions": [
-      "No offers were collected. Check that the selected sources are reachable."
-    ]
-  },
-  {
-    "run_id": "496e866d-3ff7-48e4-a876-5990f719bd9e",
-    "started_at": "2026-05-27T21:40:07.775589Z",
-    "finished_at": "2026-05-27T21:40:09.326212Z",
-    "criteria": {
-      "keywords": [
-        "React Developer",
-        "Frontend Developer",
-        "Frontend Engineer"
-      ],
-      "technologies": [
-        "React",
-        "TypeScript",
-        "Next.js"
-      ],
-      "locations": [
-        "Remote",
-        "Poland"
-      ],
-      "min_salary_b2b": 0,
-      "require_salary": false,
-      "exclude_keywords": []
-    },
-    "source_summaries": [
-      {
-        "source": "justjoin",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "rocketjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "nofluffjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 1.55
-      },
-      {
-        "source": "pracuj",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      }
-    ],
-    "decisions": [],
-    "global_warnings": [],
-    "suggestions": [
-      "No offers were collected. Check that the selected sources are reachable."
-    ]
-  },
-  {
     "run_id": "a6c6b32f-b673-4e33-b2de-3bba61bf8b2d",
     "started_at": "2026-05-27T22:21:43.992050Z",
     "finished_at": "2026-05-27T22:21:45.470899Z",
@@ -1177,6 +861,254 @@
       "https://nofluffjobs.com/job/senior-fullstack-developer-python-and-react-iteamly-remote: An offer with this URL already exists in storage.",
       "https://nofluffjobs.com/job/frontend-developer-react-verita-hr-krakow: An offer with this URL already exists in storage.",
       "pracuj: skipped 41 job_offer URL(s) by relevance filter before import."
+    ],
+    "suggestions": []
+  },
+  {
+    "run_id": "adc5360f-2564-48d8-979a-accc121e4899",
+    "started_at": "2026-05-28T12:41:32.900821Z",
+    "finished_at": "2026-05-28T12:41:32.906886Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "failed",
+        "raw_found_count": 0,
+        "job_offer_url_count": 0,
+        "found_count": 0,
+        "imported_count": 0,
+        "skipped_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "justjoin listing https://justjoin.it/job-offers?keyword=React: 1 validation error for PlaywrightModalSettings\n  Input should be a valid dictionary or instance of PlaywrightModalSettings [type=model_type, input_value=PlaywrightModalConfig(ena...mpts=3, timeout_ms=3000), input_type=PlaywrightModalConfig]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type; justjoin listing https://justjoin.it/job-offers?keyword=Frontend: 1 validation error for PlaywrightModalSettings\n  Input should be a valid dictionary or instance of PlaywrightModalSettings [type=model_type, input_value=PlaywrightModalConfig(ena...mpts=3, timeout_ms=3000), input_type=PlaywrightModalConfig]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "cadc6063-eb8b-441f-bb93-831174618893",
+    "started_at": "2026-05-28T12:42:15.380450Z",
+    "finished_at": "2026-05-28T12:42:15.386751Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "failed",
+        "raw_found_count": 0,
+        "job_offer_url_count": 0,
+        "found_count": 0,
+        "imported_count": 0,
+        "skipped_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "justjoin listing https://justjoin.it/job-offers?keyword=React: 1 validation error for PlaywrightModalSettings\n  Input should be a valid dictionary or instance of PlaywrightModalSettings [type=model_type, input_value=PlaywrightModalConfig(ena...mpts=3, timeout_ms=3000), input_type=PlaywrightModalConfig]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type; justjoin listing https://justjoin.it/job-offers?keyword=Frontend: 1 validation error for PlaywrightModalSettings\n  Input should be a valid dictionary or instance of PlaywrightModalSettings [type=model_type, input_value=PlaywrightModalConfig(ena...mpts=3, timeout_ms=3000), input_type=PlaywrightModalConfig]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "3b72bf48-e5bd-4b8a-aa03-63772bc13b2a",
+    "started_at": "2026-05-28T12:42:47.187506Z",
+    "finished_at": "2026-05-28T12:42:47.194094Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "partial",
+        "raw_found_count": 0,
+        "job_offer_url_count": 0,
+        "found_count": 0,
+        "imported_count": 0,
+        "skipped_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "justjoin: CAPTCHA detected; no bypass attempted.; justjoin: captcha detected at https://justjoin.it/job-offers?keyword=React. Cannot collect.; justjoin: CAPTCHA detected; no bypass attempted.; justjoin: captcha detected at https://justjoin.it/job-offers?keyword=Frontend. Cannot collect.",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [
+      "justjoin: CAPTCHA detected; no bypass attempted.",
+      "justjoin: captcha detected at https://justjoin.it/job-offers?keyword=React. Cannot collect.",
+      "justjoin: CAPTCHA detected; no bypass attempted.",
+      "justjoin: captcha detected at https://justjoin.it/job-offers?keyword=Frontend. Cannot collect.",
+      "justjoin: modal_action justjoin:captcha_detected:skipped:captcha",
+      "justjoin: modal_action justjoin:captcha_detected:skipped:captcha"
+    ],
+    "suggestions": []
+  },
+  {
+    "run_id": "8f9f2e75-19c4-468d-b93d-17a274a8e9bc",
+    "started_at": "2026-05-28T12:43:29.528912Z",
+    "finished_at": "2026-05-28T12:43:29.538184Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 5,
+        "job_offer_url_count": 1,
+        "found_count": 1,
+        "imported_count": 1,
+        "skipped_count": 4,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [
+      "justjoin: modal_action justjoin:none:skipped:no_modal_action",
+      "justjoin: modal_action justjoin:none:skipped:no_modal_action"
+    ],
+    "suggestions": []
+  },
+  {
+    "run_id": "a55234b2-d6d3-4180-852c-7f93084d0735",
+    "started_at": "2026-05-28T12:43:37.930426Z",
+    "finished_at": "2026-05-28T12:43:37.939003Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 5,
+        "job_offer_url_count": 1,
+        "found_count": 1,
+        "imported_count": 1,
+        "skipped_count": 4,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.01
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [
+      "justjoin: modal_action justjoin:none:skipped:no_modal_action",
+      "justjoin: modal_action justjoin:none:skipped:no_modal_action"
     ],
     "suggestions": []
   }

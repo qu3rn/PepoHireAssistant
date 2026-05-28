@@ -343,6 +343,37 @@ cv-sender debug-playwright-collectors
 - Headless mode may return fewer results on some sites; switch to `headless: false` when needed.
 - The collector starts with URLs from public listing pages and then relies on the existing importer/extractors.
 
+### Cookie and modal handling
+
+Playwright flows include a reusable safe modal handler for cookie banners and harmless overlays.
+It is used in collectors, form filling, and Playwright collector debugging.
+
+Configuration (`config/settings.yaml`):
+
+```yaml
+playwright:
+  modals:
+    enabled: true
+    cookie_mode: reject_optional   # accept_all | reject_optional | close_only | disabled
+    close_newsletters: true
+    close_generic_overlays: true
+    max_attempts: 3
+    timeout_ms: 3000
+```
+
+Cookie modes:
+
+- `reject_optional`: prefers reject/necessary-only actions; falls back to close where possible.
+- `accept_all`: accepts all cookies (only when explicitly chosen).
+- `close_only`: tries close/X buttons only.
+- `disabled`: turns off modal handling.
+
+Privacy and safety notes:
+
+- The modal handler never clicks apply/submit/register/join actions.
+- CAPTCHAs and login walls are detected and reported, never bypassed.
+- Bot-protection workflows are not bypassed.
+
 ---
 
 ## Save to Job Assistant – bookmarklet

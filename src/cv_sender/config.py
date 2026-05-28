@@ -74,6 +74,23 @@ class FormFillingConfig(BaseModel):
     save_step_log: bool = True
 
 
+class PlaywrightModalConfig(BaseModel):
+    """Safety-limited cookie/modal handling settings for Playwright pages."""
+
+    enabled: bool = True
+    cookie_mode: str = "reject_optional"  # accept_all | reject_optional | close_only | disabled
+    close_newsletters: bool = True
+    close_generic_overlays: bool = True
+    max_attempts: int = 3
+    timeout_ms: int = 3000
+
+
+class PlaywrightConfig(BaseModel):
+    """Shared Playwright behavior used by collectors/fillers/debug tools."""
+
+    modals: PlaywrightModalConfig = PlaywrightModalConfig()
+
+
 class AnswerProfileConfig(BaseModel):
     """Candidate facts used when generating application answers."""
 
@@ -234,6 +251,7 @@ class Settings(BaseModel):
     follow_up: FollowUpConfig = FollowUpConfig()
     gmail: GmailConfig = GmailConfig()
     calendar: CalendarConfig = CalendarConfig()
+    playwright: PlaywrightConfig = PlaywrightConfig()
     job_search: JobSearchConfig = JobSearchConfig()
     playwright_collection: PlaywrightCollectionConfig = PlaywrightCollectionConfig()
 
@@ -268,6 +286,8 @@ def load_settings(path: str | None = None) -> Settings:
         data["lm_studio"] = LMStudioConfig.model_validate(data["lm_studio"])
     if "form_filling" in data and isinstance(data["form_filling"], dict):
         data["form_filling"] = FormFillingConfig.model_validate(data["form_filling"])
+    if "playwright" in data and isinstance(data["playwright"], dict):
+        data["playwright"] = PlaywrightConfig.model_validate(data["playwright"])
     if "answers" in data and isinstance(data["answers"], dict):
         data["answers"] = AnswerGenerationConfig.model_validate(data["answers"])
     if "answer_profile" in data and isinstance(data["answer_profile"], dict):

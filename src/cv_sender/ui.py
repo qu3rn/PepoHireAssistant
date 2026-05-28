@@ -2696,7 +2696,19 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
             m4.metric("Needs review", pw_dbg.summary_counts.get("needs_review", 0))
 
             st.write(f"Debug files path: {pw_dbg.debug_dir}")
+            st.write(f"Cookie banner handled: {'yes' if getattr(pw_dbg, 'cookie_banner_handled', False) else 'no'}")
             st.info(f"Suggested next fix: {pw_dbg.suggested_next_fix}")
+
+            modal_actions = list(getattr(pw_dbg, "modal_actions", []))
+            modal_warnings = list(getattr(pw_dbg, "modal_warnings", []))
+            if modal_actions:
+                with st.expander(f"Modal actions ({len(modal_actions)})", expanded=False):
+                    for act in modal_actions:
+                        st.write(f"- {act}")
+            if modal_warnings:
+                with st.expander(f"Modal warnings ({len(modal_warnings)})", expanded=False):
+                    for warn in modal_warnings:
+                        st.warning(warn)
 
             from pathlib import Path  # noqa: PLC0415
             import json  # noqa: PLC0415

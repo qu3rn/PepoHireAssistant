@@ -217,6 +217,15 @@ job_search:
       enabled: false
 
 # Playwright browser-based collection from public listing/search pages
+playwright:
+  modals:
+    enabled: true
+    cookie_mode: reject_optional # accept_all | reject_optional | close_only | disabled
+    close_newsletters: true
+    close_generic_overlays: true
+    max_attempts: 3
+    timeout_ms: 3000
+
 playwright_collection:
   enabled: true
   headless: false
