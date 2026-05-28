@@ -52,10 +52,144 @@ from cv_sender import services  # noqa: E402
 # Navigation
 # ---------------------------------------------------------------------------
 
-_PAGES = ["Dashboard", "Offers", "Applications", "Profile", "Settings", "Gmail", "Interviews", "Analytics", "Job Search", "Rapid Apply", "Campaigns", "Bookmarklet", "Debug", "Data Cleanup"]
+_PAGES = [
+    "Dashboard",
+    "Offers",
+    "Applications",
+    "Job Search",
+    "Rapid Apply",
+    "Campaigns",
+    "Bookmarklet",
+    "Gmail",
+    "Interviews",
+    "Profile",
+    "Settings",
+    "Analytics",
+    "Debug",
+    "Data Cleanup",
+]
+
+_PAGE_LABELS = {
+    "Dashboard": "Overview Dashboard",
+    "Offers": "Offers Inbox",
+    "Applications": "Applications Tracker",
+    "Profile": "Candidate Profile",
+    "Settings": "App Settings",
+    "Gmail": "Gmail Integration",
+    "Interviews": "Interviews Calendar",
+    "Analytics": "Performance Analytics",
+    "Job Search": "Job Search",
+    "Rapid Apply": "Rapid Apply Queue",
+    "Campaigns": "Campaigns",
+    "Bookmarklet": "Bookmarklet Tools",
+    "Debug": "Debug Tools",
+    "Data Cleanup": "Data Cleanup",
+}
 
 st.sidebar.title("cv-sender")
-page = st.sidebar.radio("Navigate", _PAGES, label_visibility="collapsed")
+st.sidebar.markdown(
+    """
+    <style>
+    .stApp {
+        background: #23201d;
+        color: #f3ede6;
+    }
+    [data-testid="stAppViewContainer"] {
+        background: #23201d;
+    }
+    [data-testid="stSidebar"] {
+        background: #1b1917;
+    }
+    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
+        background: #1b1917;
+    }
+    [data-testid="stSidebar"] .stButton {
+        width: 100%;
+    }
+    [data-testid="stSidebar"] .stButton > button {
+        border-radius: 0;
+        min-height: 1.85rem;
+        width: 100% !important;
+        border: none;
+        margin: 0;
+        padding-top: 0.1rem;
+        padding-bottom: 0.1rem;
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+        box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+        background: #35312d;
+        color: #f0e8df;
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+        background: #ff7a1a;
+        color: #1a120a;
+    }
+    [data-testid="stSidebar"] .stButton > button p {
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+    [data-testid="stHeader"] {
+        background: rgba(27, 25, 23, 0.92);
+    }
+    [data-testid="stToolbar"] {
+        background: transparent;
+    }
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] label {
+        color: #efe7de;
+    }
+    h1, h2, h3, h4, h5, h6,
+    p, li, label, div {
+        color: #f3ede6;
+    }
+    .stButton > button[kind="primary"] {
+        background: #ff7a1a;
+        border: 1px solid #ff7a1a;
+        color: #1a120a;
+    }
+    .stButton > button[kind="secondary"] {
+        background: #3b3631;
+        border: 1px solid #4a433c;
+        color: #f0e8df;
+    }
+    [data-baseweb="input"] > div,
+    [data-baseweb="select"] > div,
+    .stTextInput input,
+    .stTextArea textarea,
+    .stNumberInput input {
+        background: #2f2b27;
+        color: #f2ebe2;
+        border-color: #4b443d;
+    }
+    a {
+        color: #ff9a4d;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+if "ui_page" not in st.session_state:
+    st.session_state["ui_page"] = "Dashboard"
+
+for page_name in _PAGES:
+    is_active = st.session_state["ui_page"] == page_name
+    if st.sidebar.button(
+        _PAGE_LABELS.get(page_name, page_name),
+        key=f"nav_btn_{page_name}",
+        use_container_width=True,
+        type="primary" if is_active else "secondary",
+    ):
+        st.session_state["ui_page"] = page_name
+        st.rerun()
+
+page = st.session_state["ui_page"]
 st.sidebar.markdown("---")
 st.sidebar.caption("⚠️ Forms are filled but **never** auto-submitted.")
 
