@@ -11,8 +11,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from cv_sender.collectors.base import JobSearchCriteria
-from cv_sender.collectors.playwright_base import classify_collected_url, classify_page
-from cv_sender.playwright_helpers import detect_cookie_banner_visible, handle_common_modals
+from cv_sender.collectors.playwright_base import classify_collected_url, detect_blocked_page, detect_captcha
+from cv_sender.playwright_helpers import detect_cookie_banner_visible, detect_login_detection, handle_common_modals
 from cv_sender.relevance import EmergencyReactMode, match_offer_relevance
 
 try:
@@ -91,6 +91,7 @@ class PlaywrightCollectorDebugReport(BaseModel):
     detected_login_wall: bool = False
     detected_captcha: bool = False
     detected_blocked_page: bool = False
+    login_detection: dict[str, Any] = Field(default_factory=dict)
     stopped_reason: str = ""
     debug_dir: str = ""
     summary_counts: dict[str, int] = Field(default_factory=dict)
@@ -119,6 +120,11 @@ class PlaywrightCollectorDebugRunSummary(BaseModel):
     cookie_banner_visible_after: bool = False
     captcha_detected: bool = False
     login_detected: bool = False
+    navigation_login_link_detected: bool = False
+    login_redirect_detected: bool = False
+    login_form_detected: bool = False
+    useful_content_detected: bool = False
+    login_detection_reason: str = ""
     blocked_detected: bool = False
     debug_dir: str = ""
     files: dict[str, str] = Field(default_factory=dict)
@@ -149,6 +155,10 @@ def _build_run_summary(run_dir: Path) -> PlaywrightCollectorDebugRunSummary:
         metadata = {}
 
     modal_summary = metadata.get("modal_summary") or {}
+    login_detection = metadata.get("login_detection") or {}
+    if not isinstance(login_detection, dict):
+        login_detection = {}
+
     if not isinstance(modal_summary, dict):
         modal_summary = {}
 
@@ -189,6 +199,11 @@ def _build_run_summary(run_dir: Path) -> PlaywrightCollectorDebugRunSummary:
         cookie_banner_visible_after=bool(modal_summary.get("cookie_banner_visible_after", False)),
         captcha_detected=bool(metadata.get("detected_captcha", False)),
         login_detected=bool(metadata.get("detected_login_wall", False)),
+        navigation_login_link_detected=bool(login_detection.get("navigation_login_link_detected", False)),
+        login_redirect_detected=bool(login_detection.get("login_redirect_detected", False)),
+        login_form_detected=bool(login_detection.get("login_form_detected", False)),
+        useful_content_detected=bool(login_detection.get("useful_content_detected", False)),
+        login_detection_reason=str(login_detection.get("reason") or ""),
         blocked_detected=bool(metadata.get("detected_blocked_page", False)),
         debug_dir=str(run_dir),
         files=files,
@@ -614,6 +629,17 @@ def _build_markdown_report(
     else:
         lines.append("- none")
     lines.append("")
+    lines.append("## Login detection")
+    login = report.login_detection if isinstance(report.login_detection, dict) else {}
+    lines.append(
+        f"- Navigation login link detected: {'yes' if bool(login.get('navigation_login_link_detected', False)) else 'no'}"
+    )
+    lines.append(f"- Login redirect detected: {'yes' if bool(login.get('login_redirect_detected', False)) else 'no'}")
+    lines.append(f"- Login form detected: {'yes' if bool(login.get('login_form_detected', False)) else 'no'}")
+    lines.append(f"- Useful content detected: {'yes' if bool(login.get('useful_content_detected', False)) else 'no'}")
+    lines.append(f"- Final decision: login wall {'yes' if report.detected_login_wall else 'no'}")
+    lines.append(f"- Reason: {str(login.get('reason') or '(none)')}")
+    lines.append("")
     lines.append("## Suggested next fix")
     lines.append(report.suggested_next_fix)
 
@@ -666,6 +692,7 @@ def debug_collect_source(
     modal_warnings: list[str] = []
     cookie_banner_handled = False
     modal_summary: dict[str, Any] = {}
+    login_detection_payload: dict[str, Any] = {}
     modal_settings: Any = None
 
     try:
@@ -729,7 +756,9 @@ def debug_collect_source(
                 warnings.append("CAPTCHA detected; debug run stopped without bypass.")
                 stopped_reason = "blocked_by_captcha"
             if modal_result.blocked_by_login:
-                warnings.append("Login wall detected; debug run stopped without bypass.")
+                login_detection_payload = dict(getattr(modal_result, "login_detection", {}) or {})
+                reason = str(login_detection_payload.get("reason") or "login wall detected")
+                warnings.append(f"Login wall detected; debug run stopped without bypass. ({reason})")
                 stopped_reason = "blocked_by_login"
 
             if modal_result.blocked_by_captcha or modal_result.blocked_by_login:
@@ -738,6 +767,14 @@ def debug_collect_source(
                 user_agent = str(page.evaluate("() => navigator.userAgent") or "")
                 body_text = page.inner_text("body") or ""
                 raw_html = page.content() or ""
+                if not login_detection_payload:
+                    try:
+                        login_detection_payload = detect_login_detection(
+                            page,
+                            original_listing_url=selected_listing_url,
+                        ).model_dump(mode="json")
+                    except Exception:  # noqa: BLE001
+                        login_detection_payload = {}
                 raise RuntimeError("Protected page detected; stopped safely.")
 
             final_url = page.url
@@ -745,6 +782,14 @@ def debug_collect_source(
             user_agent = str(page.evaluate("() => navigator.userAgent") or "")
             body_text = page.inner_text("body") or ""
             raw_html = page.content() or ""
+            if not login_detection_payload:
+                try:
+                    login_detection_payload = detect_login_detection(
+                        page,
+                        original_listing_url=selected_listing_url,
+                    ).model_dump(mode="json")
+                except Exception:  # noqa: BLE001
+                    login_detection_payload = {}
 
             links_before = extract_all_links_with_context(page, selected_listing_url)
             all_links_after_scroll = list(links_before)
@@ -816,10 +861,21 @@ def debug_collect_source(
     classified_links = classify_links_with_reasons(all_links_after_scroll, src, criteria)
     summary = classification_summary_counts(classified_links)
 
-    page_class = classify_page(body_text)
-    detected_login_wall = page_class == "login_wall"
-    detected_captcha = page_class == "captcha"
-    detected_blocked_page = page_class == "blocked"
+    if not login_detection_payload:
+        login_detection_payload = {
+            "navigation_login_link_detected": False,
+            "login_wall_detected": False,
+            "login_redirect_detected": False,
+            "login_form_detected": False,
+            "reason": "",
+            "detected_texts": [],
+            "current_url": final_url,
+            "useful_content_detected": False,
+        }
+
+    detected_login_wall = bool(login_detection_payload.get("login_wall_detected", False))
+    detected_captcha = detect_captcha(body_text)
+    detected_blocked_page = detect_blocked_page(body_text)
     detected_cookie_banner = _cookie_banner_detected(body_text)
 
     if not modal_summary:
@@ -884,6 +940,7 @@ def debug_collect_source(
         detected_login_wall=detected_login_wall,
         detected_captcha=detected_captcha,
         detected_blocked_page=detected_blocked_page,
+        login_detection=login_detection_payload,
         stopped_reason=stopped_reason,
         debug_dir=str(run_dir),
         summary_counts=summary,

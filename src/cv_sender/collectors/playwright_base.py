@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover
 from pydantic import BaseModel, Field
 
 from cv_sender.collectors.base import JobSearchCriteria
-from cv_sender.playwright_helpers import detect_cookie_banner_visible, handle_common_modals
+from cv_sender.playwright_helpers import detect_cookie_banner_visible, detect_login_detection, handle_common_modals
 from cv_sender.relevance import EmergencyReactMode, match_offer_relevance
 
 if TYPE_CHECKING:
@@ -284,6 +284,19 @@ def classify_page(page_text: str) -> str | None:
     if detect_login_wall(page_text):
         return "login_wall"
     return None
+
+
+def _empty_login_detection(current_url: str = "") -> dict[str, Any]:
+    return {
+        "navigation_login_link_detected": False,
+        "login_wall_detected": False,
+        "login_redirect_detected": False,
+        "login_form_detected": False,
+        "reason": "",
+        "detected_texts": [],
+        "current_url": current_url,
+        "useful_content_detected": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -689,6 +702,10 @@ class PlaywrightJobCollector(ABC):
                 screenshot_name="screenshot_after_modals.png",
             )
 
+        login_detection_payload = getattr(modal_result, "login_detection", None)
+        if not isinstance(login_detection_payload, dict):
+            login_detection_payload = _empty_login_detection(getattr(page, "url", "") or "")
+
         if modal_result.blocked_by_captcha:
             warning = f"{self.source}: captcha detected at {listing_url}. Cannot collect."
             artifacts = _save_debug_artifacts(
@@ -719,6 +736,7 @@ class PlaywrightJobCollector(ABC):
                     "detected_captcha": True,
                     "detected_login_wall": False,
                     "detected_blocked_page": False,
+                    "login_detection": login_detection_payload,
                 },
                 modal_actions=[action.model_dump(mode="json") for action in modal_result.actions_taken],
             )
@@ -753,6 +771,7 @@ class PlaywrightJobCollector(ABC):
                     "detected_captcha": False,
                     "detected_login_wall": True,
                     "detected_blocked_page": False,
+                    "login_detection": login_detection_payload,
                 },
                 modal_actions=[action.model_dump(mode="json") for action in modal_result.actions_taken],
             )
@@ -765,9 +784,29 @@ class PlaywrightJobCollector(ABC):
         except Exception:  # noqa: BLE001
             pass
 
-        classification = classify_page(page_text)
+        login_detection = detect_login_detection(page, original_listing_url=listing_url)
+        login_detection_payload = login_detection.model_dump(mode="json")
+
+        captcha_detected = detect_captcha(page_text)
+        blocked_detected = detect_blocked_page(page_text)
+        login_wall_detected = bool(login_detection.login_wall_detected)
+
+        if login_detection.navigation_login_link_detected and not login_wall_detected:
+            result.warnings.append(
+                f"{self.source}: Login link detected in navigation, but page content is accessible."
+            )
+
+        classification: str | None = None
+        if captcha_detected:
+            classification = "captcha"
+        elif blocked_detected:
+            classification = "blocked"
+        elif login_wall_detected:
+            classification = "login_wall"
+
         if classification:
-            warning = f"{self.source}: page at {listing_url} is {classification}. Cannot collect."
+            reason = login_detection.reason if classification == "login_wall" else classification
+            warning = f"{self.source}: page at {listing_url} is {classification}. Cannot collect. ({reason})"
             logger.warning(warning)
             artifacts = _save_debug_artifacts(
                 result.run_id,
@@ -797,6 +836,7 @@ class PlaywrightJobCollector(ABC):
                     "detected_captcha": classification == "captcha",
                     "detected_login_wall": classification == "login_wall",
                     "detected_blocked_page": classification == "blocked",
+                    "login_detection": login_detection_payload,
                 },
                 modal_actions=[action.model_dump(mode="json") for action in modal_result.actions_taken],
             )
@@ -967,6 +1007,7 @@ class PlaywrightJobCollector(ABC):
                 "detected_captcha": result.blocked_by_captcha,
                 "detected_login_wall": result.blocked_by_login,
                 "detected_blocked_page": False,
+                "login_detection": login_detection_payload,
             },
             modal_actions=modal_actions_payload,
         )
