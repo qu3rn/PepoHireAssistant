@@ -3989,6 +3989,7 @@ def _render_playwright_debug_details(run: Any, settings: Settings) -> None:
     job_cards = _load_json_file(Path(run.files.get("job_card_candidates.json", ""))) if run.files.get("job_card_candidates.json") else []
     raw_links = _load_json_file(Path(run.files.get("links.json", ""))) if run.files.get("links.json") else []
     modal_summary = dict((metadata or {}).get("modal_summary") or {}) if isinstance(metadata, dict) else {}
+    login_detection = dict((metadata or {}).get("login_detection") or {}) if isinstance(metadata, dict) else {}
 
     st.subheader("Selected Playwright collector run")
     st.caption(f"{run.run_id} · {run.source} · {run.status}")
@@ -4027,6 +4028,23 @@ def _render_playwright_debug_details(run: Any, settings: Settings) -> None:
             f"login={'yes' if run.login_detected else 'no'} · "
             f"blocked={'yes' if run.blocked_detected else 'no'}"
         )
+        if login_detection:
+            st.markdown("**Login detection**")
+            st.write(
+                " · ".join(
+                    [
+                        f"Navigation login link: {'yes' if login_detection.get('navigation_login_link_detected') else 'no'}",
+                        f"Login redirect: {'yes' if login_detection.get('login_redirect_detected') else 'no'}",
+                        f"Login form: {'yes' if login_detection.get('login_form_detected') else 'no'}",
+                        f"Useful content: {'yes' if login_detection.get('useful_content_detected') else 'no'}",
+                        f"Login wall: {'yes' if login_detection.get('login_wall_detected') else 'no'}",
+                    ]
+                )
+            )
+            if login_detection.get("reason"):
+                st.caption(f"Reason: {login_detection.get('reason')}")
+            if login_detection.get("navigation_login_link_detected") and not login_detection.get("login_wall_detected"):
+                st.info("Login link was found in navigation, but the page was not blocked.")
         if modal_summary:
             st.json(modal_summary)
         for warning in getattr(run, "warnings", []):
@@ -4133,8 +4151,11 @@ def _render_playwright_debug_runs(settings: Settings) -> None:
                 f"modal_actions={run.modal_actions_count} · "
                 f"captcha={'yes' if run.captcha_detected else 'no'} · "
                 f"login={'yes' if run.login_detected else 'no'} · "
+                f"nav_login={'yes' if getattr(run, 'navigation_login_link_detected', False) else 'no'} · "
                 f"blocked={'yes' if run.blocked_detected else 'no'}"
             )
+            if getattr(run, "navigation_login_link_detected", False) and not getattr(run, "login_detected", False):
+                st.info("Login link was found in navigation, but the page was not blocked.")
             st.write(
                 "Cookie visibility: "
                 f"before={'yes' if run.cookie_banner_visible_before else 'no'} · "

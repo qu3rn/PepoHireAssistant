@@ -41,6 +41,18 @@ class ModalHandlingResult(BaseModel):
     blocked_by_overlay: bool = False
     cookie_banner_visible_before: bool = False
     cookie_banner_visible_after: bool = False
+    login_detection: dict[str, Any] = Field(default_factory=dict)
+
+
+class LoginDetectionResult(BaseModel):
+    navigation_login_link_detected: bool = False
+    login_wall_detected: bool = False
+    login_redirect_detected: bool = False
+    login_form_detected: bool = False
+    reason: str = ""
+    detected_texts: list[str] = Field(default_factory=list)
+    current_url: str = ""
+    useful_content_detected: bool = False
 
 
 class PlaywrightModalSettings(BaseModel):
@@ -103,6 +115,18 @@ _NEWSLETTER_TOKENS = [
 
 _CAPTCHA_TOKENS = ["captcha", "recaptcha", "hcaptcha", "i'm not a robot", "nie jestem robotem"]
 _LOGIN_TOKENS = ["zaloguj", "log in", "login", "sign in", "utwórz konto", "create account"]
+_LOGIN_WALL_PHRASES = [
+    "zaloguj się, aby kontynuować",
+    "zaloguj sie, aby kontynuowac",
+    "log in to continue",
+    "sign in to continue",
+    "musisz się zalogować",
+    "musisz sie zalogowac",
+    "login required",
+    "authentication required",
+]
+_LOGIN_URL_TOKENS = ["/login", "/logowanie", "/signin", "/sign-in", "/account/login", "/auth"]
+_LOGIN_SUBMIT_TOKENS = ["zaloguj", "login", "log in", "sign in", "continue", "kontynuuj"]
 
 _DANGEROUS_CLICK_TOKENS = [
     "apply",
@@ -284,7 +308,6 @@ def _detect_blockers(page: Any) -> tuple[bool, bool, str]:
         pass
 
     captcha = _contains_any(page_text, _CAPTCHA_TOKENS)
-    login = _contains_any(page_text, _LOGIN_TOKENS)
 
     for sel in (
         ".g-recaptcha",
@@ -309,23 +332,245 @@ def _detect_blockers(page: Any) -> tuple[bool, bool, str]:
         except Exception:  # noqa: BLE001
             continue
 
+    login_detection = detect_login_detection(page)
+
+    return captcha, login_detection.login_wall_detected, page_text
+
+
+def _safe_is_visible(locator: Any) -> bool:
     try:
-        pw = page.locator("input[type='password']")
-        pw_count = pw.count()
-        if not isinstance(pw_count, int):
-            pw_count = 0
-        pw_visible = False
-        if pw_count > 0:
-            try:
-                pw_visible = bool(pw.first.is_visible())
-            except Exception:  # noqa: BLE001
-                pw_visible = False
-        if pw_count > 0 and pw_visible:
-            login = True
+        return bool(locator.is_visible())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _any_visible(page: Any, selector: str) -> bool:
+    try:
+        loc = page.locator(selector)
+        count = loc.count()
+        if not isinstance(count, int):
+            return False
+        for idx in range(min(count, 20)):
+            if _safe_is_visible(loc.nth(idx)):
+                return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
+def _first_visible_text(page: Any, selector: str) -> str:
+    try:
+        loc = page.locator(selector)
+        count = loc.count()
+        if not isinstance(count, int):
+            return ""
+        for idx in range(min(count, 20)):
+            item = loc.nth(idx)
+            if _safe_is_visible(item):
+                text = _extract_label_from_locator(item)
+                if text:
+                    return text
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
+def _detect_useful_content(page: Any, body_text: str) -> bool:
+    try:
+        result = page.evaluate(
+            """
+            () => {
+              const isVisible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              };
+              const offerLinks = Array.from(document.querySelectorAll('a[href]')).filter((a) => {
+                if (!isVisible(a)) return false;
+                const href = (a.getAttribute('href') || '').toLowerCase();
+                return /job-offer|oferta-pracy|,oferta,|\\/job\\/|\\/praca\\//.test(href);
+              }).length;
+              const jobCards = Array.from(document.querySelectorAll('article, [data-testid*="offer" i], [class*="job" i], [class*="offer" i], [class*="listing" i]')).filter(isVisible).length;
+              const listingContainers = Array.from(document.querySelectorAll('[data-testid*="list" i], [class*="results" i], [class*="jobs" i], [class*="listing" i]')).filter(isVisible).length;
+              const body = (document.body?.innerText || '').trim();
+              return {
+                offerLinks,
+                jobCards,
+                listingContainers,
+                bodyLength: body.length,
+              };
+            }
+            """
+        )
+        if isinstance(result, dict):
+            if int(result.get("offerLinks") or 0) > 0:
+                return True
+            if int(result.get("jobCards") or 0) > 2:
+                return True
+            if int(result.get("listingContainers") or 0) > 0:
+                return True
+            if int(result.get("bodyLength") or 0) > 800:
+                return True
     except Exception:  # noqa: BLE001
         pass
 
-    return captcha, login, page_text
+    low = _norm(body_text)
+    non_login_tokens = ["react", "frontend", "developer", "oferta", "praca", "jobs", "remote", "salary", "wynagrodzenie"]
+    return len(low) > 800 and any(token in low for token in non_login_tokens)
+
+
+def _detect_navigation_login_links(page: Any, body_text: str) -> tuple[bool, list[str]]:
+    detected: list[str] = []
+    try:
+        rows = page.evaluate(
+            """
+            () => {
+              const isVisible = (el) => {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              };
+              const inNav = (el) => Boolean(el.closest('header, nav, [role="navigation"], footer'));
+              const out = [];
+              for (const el of Array.from(document.querySelectorAll('a, button'))) {
+                if (!isVisible(el)) continue;
+                if (!inNav(el)) continue;
+                const text = ((el.innerText || el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '')).trim();
+                if (text) out.push(text);
+              }
+              return out.slice(0, 60);
+            }
+            """
+        )
+        if isinstance(rows, list):
+            for row in rows:
+                label = _norm(str(row))
+                if _contains_any(label, _LOGIN_TOKENS):
+                    detected.append(label)
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not detected and _contains_any(body_text, _LOGIN_TOKENS):
+        # Fallback hint only when DOM introspection is unavailable.
+        detected.append("login text detected")
+
+    return bool(detected), list(dict.fromkeys(detected))
+
+
+def detect_login_detection(page: Any, original_listing_url: str = "") -> LoginDetectionResult:
+    """Detect real login walls while avoiding nav/header login false positives."""
+    result = LoginDetectionResult()
+    body_text = ""
+    try:
+        body_text = page.inner_text("body") or ""
+    except Exception:  # noqa: BLE001
+        body_text = ""
+
+    current_url = ""
+    try:
+        current_url = str(getattr(page, "url", "") or "")
+    except Exception:  # noqa: BLE001
+        current_url = ""
+    result.current_url = current_url
+
+    result.useful_content_detected = _detect_useful_content(page, body_text)
+
+    nav_login, nav_texts = _detect_navigation_login_links(page, body_text)
+    result.navigation_login_link_detected = nav_login
+    result.detected_texts.extend(nav_texts[:8])
+
+    cur_low = current_url.lower()
+    orig_low = (original_listing_url or "").lower()
+    current_login_url = any(token in cur_low for token in _LOGIN_URL_TOKENS)
+    original_login_url = any(token in orig_low for token in _LOGIN_URL_TOKENS)
+    result.login_redirect_detected = bool(current_login_url and not original_login_url)
+
+    has_visible_password = _any_visible(page, "input[type='password']")
+    has_visible_login_input = (
+        _any_visible(page, "input[type='email']")
+        or _any_visible(page, "input[name*='email' i]")
+        or _any_visible(page, "input[name*='login' i]")
+        or _any_visible(page, "input[autocomplete='username']")
+        or _any_visible(page, "input[name*='user' i]")
+    )
+    submit_text = _first_visible_text(page, "button[type='submit'], input[type='submit'], button")
+    has_login_submit = _contains_any(submit_text, _LOGIN_SUBMIT_TOKENS)
+    form_condition = has_visible_password and has_visible_login_input and has_login_submit
+    result.login_form_detected = bool(form_condition)
+
+    overlay_form_detected = False
+    try:
+        overlay_form_detected = bool(
+            page.evaluate(
+                """
+                () => {
+                  const isVisible = (el) => {
+                    if (!el) return false;
+                    const style = window.getComputedStyle(el);
+                    if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                  };
+                  const vw = Math.max(window.innerWidth || 0, 1);
+                  const vh = Math.max(window.innerHeight || 0, 1);
+                  const nodes = Array.from(document.querySelectorAll('div,section,aside,dialog,[role="dialog"]'));
+                  for (const node of nodes) {
+                    if (!isVisible(node)) continue;
+                    const style = window.getComputedStyle(node);
+                    if (!(style.position === 'fixed' || style.position === 'sticky' || node.getAttribute('role') === 'dialog')) continue;
+                    const rect = node.getBoundingClientRect();
+                    const areaRatio = (rect.width * rect.height) / (vw * vh);
+                    if (areaRatio < 0.35) continue;
+                    const password = node.querySelector('input[type="password"]');
+                    const user = node.querySelector('input[type="email"], input[name*="email" i], input[name*="login" i], input[autocomplete="username"]');
+                    const submit = node.querySelector('button[type="submit"], input[type="submit"], button');
+                    if (password && user && submit && isVisible(password) && isVisible(user) && isVisible(submit)) return true;
+                  }
+                  return false;
+                }
+                """
+            )
+        )
+    except Exception:  # noqa: BLE001
+        overlay_form_detected = False
+
+    if overlay_form_detected:
+        result.login_form_detected = True
+
+    low_body = _norm(body_text)
+    blocking_phrases = [phrase for phrase in _LOGIN_WALL_PHRASES if phrase in low_body]
+    if blocking_phrases:
+        result.detected_texts.extend(blocking_phrases[:4])
+
+    content_blocking = bool(blocking_phrases) and not result.useful_content_detected
+
+    strong_reasons: list[str] = []
+    if result.login_redirect_detected:
+        strong_reasons.append("redirected_to_login_url")
+    if form_condition:
+        strong_reasons.append("visible_login_form_detected")
+    if overlay_form_detected:
+        strong_reasons.append("blocking_login_overlay_detected")
+    if content_blocking:
+        strong_reasons.append("login_required_text_and_no_useful_content")
+
+    result.login_wall_detected = bool(strong_reasons)
+
+    if result.login_wall_detected:
+        result.reason = ", ".join(strong_reasons)
+    elif result.navigation_login_link_detected and result.useful_content_detected:
+        result.reason = "Login link detected in navigation, but page content is accessible."
+    elif result.navigation_login_link_detected:
+        result.reason = "Navigation login link detected without strong login-wall signals."
+    else:
+        result.reason = "No login wall signals detected."
+
+    result.detected_texts = list(dict.fromkeys(result.detected_texts))[:12]
+    return result
 
 
 def _resolve_modal_settings(settings: Any | None) -> PlaywrightModalSettings:
@@ -378,7 +623,9 @@ def handle_common_modals(page: Any, settings: Any = None, context: str = "collec
         return result
 
     for attempt_idx in range(max(1, modal_cfg.max_attempts)):
-        captcha, login, page_text = _detect_blockers(page)
+        captcha, _login_wall, page_text = _detect_blockers(page)
+        login_detection = detect_login_detection(page)
+        result.login_detection = login_detection.model_dump(mode="json")
         if captcha:
             result.blocked_by_captcha = True
             result.warnings.append("CAPTCHA detected; no bypass attempted.")
@@ -393,13 +640,17 @@ def handle_common_modals(page: Any, settings: Any = None, context: str = "collec
                 )
             )
             return result
-        if login:
+        if login_detection.navigation_login_link_detected and not login_detection.login_wall_detected:
+            msg = "Login link detected in navigation, but page content is accessible."
+            if msg not in result.warnings:
+                result.warnings.append(msg)
+        if login_detection.login_wall_detected:
             result.blocked_by_login = True
             result.warnings.append("Login wall detected; no bypass attempted.")
             result.actions_taken.append(
                 ModalAction(
                     type="login_detected",
-                    selector_or_text="login",
+                    selector_or_text=login_detection.reason or "login",
                     status="skipped",
                     message="detected",
                     before_visible=result.cookie_banner_visible_after,

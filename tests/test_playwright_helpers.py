@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cv_sender.playwright_helpers import handle_common_modals
+from cv_sender.playwright_helpers import detect_login_detection, handle_common_modals
 
 
 class _FakeItem:
@@ -63,6 +63,50 @@ class _FakePage:
 
     def wait_for_timeout(self, timeout: int) -> None:
         _ = timeout
+
+
+class _LoginFakeItem(_FakeItem):
+    def __init__(self, text: str = "", attrs: dict[str, str] | None = None, visible: bool = True) -> None:
+        super().__init__(text=text, attrs=attrs)
+        self._visible = visible
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+
+class _LoginFakePage:
+    def __init__(
+        self,
+        *,
+        url: str,
+        body_text: str,
+        selector_map: dict[str, list[_LoginFakeItem]] | None = None,
+        nav_texts: list[str] | None = None,
+        useful_content: dict[str, int] | None = None,
+        overlay_login_form: bool = False,
+    ) -> None:
+        self.url = url
+        self._body_text = body_text
+        self._selector_map = selector_map or {}
+        self._nav_texts = nav_texts or []
+        self._useful_content = useful_content or {"offerLinks": 0, "jobCards": 0, "listingContainers": 0, "bodyLength": len(body_text)}
+        self._overlay_login_form = overlay_login_form
+
+    def inner_text(self, selector: str) -> str:
+        assert selector == "body"
+        return self._body_text
+
+    def locator(self, selector: str) -> _FakeLocator:
+        return _FakeLocator(self._selector_map.get(selector, []))
+
+    def evaluate(self, script: str, _arg=None):
+        if "header, nav" in script:
+            return list(self._nav_texts)
+        if "offerLinks" in script and "jobCards" in script:
+            return dict(self._useful_content)
+        if "areaRatio" in script and "input[type=\"password\"]" in script:
+            return self._overlay_login_form
+        return False
 
 
 def test_reject_optional_prefers_reject_over_accept() -> None:
@@ -199,3 +243,116 @@ def test_cookie_banner_still_visible_creates_warning() -> None:
     assert any("still visible" in warning.lower() for warning in result.warnings)
     assert result.cookie_banner_visible_before is True
     assert result.cookie_banner_visible_after is True
+
+
+def test_navigation_zaloguj_link_only_is_not_login_wall() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="Oferty pracy frontend React",
+        nav_texts=["Zaloguj", "Konto"],
+        useful_content={"offerLinks": 10, "jobCards": 5, "listingContainers": 1, "bodyLength": 1200},
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.navigation_login_link_detected is True
+    assert result.login_wall_detected is False
+
+
+def test_navigation_login_link_only_is_not_login_wall() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="Senior React jobs",
+        nav_texts=["Login", "Sign in"],
+        useful_content={"offerLinks": 6, "jobCards": 3, "listingContainers": 1, "bodyLength": 1000},
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.navigation_login_link_detected is True
+    assert result.login_wall_detected is False
+
+
+def test_redirect_to_login_url_detected_as_login_wall() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/login",
+        body_text="Please sign in",
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.login_redirect_detected is True
+    assert result.login_wall_detected is True
+
+
+def test_visible_email_password_and_submit_detected_as_login_wall() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="Welcome back",
+        selector_map={
+            "input[type='password']": [_LoginFakeItem(visible=True)],
+            "input[type='email']": [_LoginFakeItem(visible=True)],
+            "button[type='submit'], input[type='submit'], button": [_LoginFakeItem(text="Sign in", visible=True)],
+        },
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.login_form_detected is True
+    assert result.login_wall_detected is True
+
+
+def test_login_phrase_without_content_detected_as_login_wall() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="Log in to continue",
+        useful_content={"offerLinks": 0, "jobCards": 0, "listingContainers": 0, "bodyLength": 30},
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.useful_content_detected is False
+    assert result.login_wall_detected is True
+
+
+def test_login_text_with_job_links_is_not_login_wall() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="Log in to continue, or browse jobs below",
+        nav_texts=["Login"],
+        useful_content={"offerLinks": 12, "jobCards": 6, "listingContainers": 1, "bodyLength": 1400},
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.navigation_login_link_detected is True
+    assert result.useful_content_detected is True
+    assert result.login_wall_detected is False
+
+
+def test_hidden_password_input_does_not_trigger_login_wall() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="React jobs list",
+        selector_map={
+            "input[type='password']": [_LoginFakeItem(visible=False)],
+            "input[type='email']": [_LoginFakeItem(visible=True)],
+            "button[type='submit'], input[type='submit'], button": [_LoginFakeItem(text="Login", visible=True)],
+        },
+        useful_content={"offerLinks": 8, "jobCards": 4, "listingContainers": 1, "bodyLength": 1000},
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.login_form_detected is False
+    assert result.login_wall_detected is False
+
+
+def test_useful_content_prevents_false_positive() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="Authentication required in some actions, but offers are visible",
+        nav_texts=["Sign in"],
+        useful_content={"offerLinks": 5, "jobCards": 3, "listingContainers": 1, "bodyLength": 900},
+    )
+    result = detect_login_detection(page, original_listing_url="https://example.com/jobs")
+    assert result.useful_content_detected is True
+    assert result.login_wall_detected is False
+
+
+def test_handle_modals_navigation_login_link_does_not_block() -> None:
+    page = _LoginFakePage(
+        url="https://example.com/jobs",
+        body_text="Browse offers. Login is optional.",
+        nav_texts=["Login"],
+        useful_content={"offerLinks": 9, "jobCards": 5, "listingContainers": 1, "bodyLength": 1200},
+    )
+    result = handle_common_modals(page, {"enabled": True, "cookie_mode": "close_only"}, context="collection")
+    assert result.blocked_by_login is False
+    assert any("navigation" in warning.lower() for warning in result.warnings)
