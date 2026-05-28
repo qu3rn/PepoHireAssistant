@@ -378,6 +378,7 @@ class Campaign(BaseModel):
     technologies: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
+    collector_mode: str = ""
     min_score: int = 0
     min_salary_b2b: int = 0
     require_salary: bool = False

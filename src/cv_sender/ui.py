@@ -1818,12 +1818,12 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
         with col1:
             if st.button("Run Emergency React Search + Build Queue", type="primary"):
                 from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
-                from cv_sender.job_search import run_job_collection  # noqa: PLC0415
+                from cv_sender.job_search import collect_jobs  # noqa: PLC0415
 
                 criteria = JobSearchCriteria.emergency_react()
                 sources = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
                 with st.spinner("Collecting React / Frontend offers …"):
-                    run_job_collection(criteria, sources, auto_score=True)
+                    collect_jobs(criteria, mode="playwright", source_names=sources, auto_score=True)
                 with st.spinner("Building queue …"):
                     build_apply_queue_from_offers()
                 st.success("Done! Refresh to see the new queue items.")
@@ -2204,6 +2204,41 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 default_enabled = default_val.enabled if default_val else (name != "linkedin")
                 src_enabled[name] = st.checkbox(name, value=default_enabled)
 
+        st.subheader("Collector mode")
+        mode_map = {
+            "Playwright browser collector": "playwright",
+            "API/static collector": "api_static",
+            "Hybrid: API/static first, then Playwright fallback": "hybrid",
+        }
+        rev_mode_map = {v: k for k, v in mode_map.items()}
+        cfg_mode = (getattr(cfg, "collector_mode", "playwright") or "playwright").lower()
+        if cfg_mode in ("api", "static"):
+            cfg_mode = "api_static"
+
+        if emergency and st.session_state.get("js_collector_mode") in (None, "", cfg_mode):
+            st.session_state["js_collector_mode"] = "playwright"
+        elif "js_collector_mode" not in st.session_state:
+            st.session_state["js_collector_mode"] = cfg_mode or "playwright"
+
+        selected_mode_label = st.selectbox(
+            "Collector mode:",
+            list(mode_map.keys()),
+            index=(
+                list(mode_map.values()).index(st.session_state.get("js_collector_mode", "playwright"))
+                if st.session_state.get("js_collector_mode", "playwright") in mode_map.values()
+                else 0
+            ),
+        )
+        selected_collector_mode = mode_map[selected_mode_label]
+        st.session_state["js_collector_mode"] = selected_collector_mode
+        fallback_to_playwright = st.checkbox(
+            "Enable Playwright fallback in hybrid mode",
+            value=bool(getattr(cfg, "fallback_to_playwright", True)),
+        )
+        st.caption("Playwright opens public listing pages in a browser and collects job URLs.")
+        st.caption("API/static is faster but may return 0 if endpoints changed.")
+        st.caption("Hybrid tries API/static first and falls back to Playwright if no results.")
+
         col_save, col_collect = st.columns(2)
         with col_save:
             if st.button("Save criteria"):
@@ -2215,6 +2250,8 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 cfg_new = cfg.model_copy(
                     update={
                         "enabled": enabled,
+                        "collector_mode": selected_collector_mode,
+                        "fallback_to_playwright": bool(fallback_to_playwright),
                         "keywords": _split(keywords_raw),
                         "technologies": _split(technologies_raw),
                         "locations": _split(locations_raw),
@@ -2254,8 +2291,18 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 active_sources = [n for n, v in src_enabled.items() if v]
 
                 with st.spinner(f"Collecting from: {', '.join(active_sources)} …"):
-                    from cv_sender.collector_diagnostics import collect_with_diagnostics  # noqa: PLC0415
-                    report = collect_with_diagnostics(criteria, active_sources, auto_score=True)
+                    from cv_sender.job_search import collect_jobs  # noqa: PLC0415
+
+                    use_mode = selected_collector_mode
+                    if emergency and st.session_state.get("js_collector_mode") == cfg_mode:
+                        use_mode = "playwright"
+
+                    report = collect_jobs(
+                        criteria,
+                        mode=use_mode,
+                        source_names=active_sources,
+                        auto_score=True,
+                    )
 
                 st.session_state["js_last_report"] = report
                 st.success(
@@ -2281,11 +2328,14 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 src_rows = [
                     {
                         "Source": ss.source,
+                        "Collector": ss.collector_used,
                         "Status": ss.status,
+                        "Raw": ss.raw_found_count,
+                        "Job URLs": ss.job_offer_url_count or ss.found_count,
                         "Found": ss.found_count,
-                        "Accepted": ss.accepted_count,
+                        "Imported": ss.imported_count or ss.accepted_count,
+                        "Skipped": ss.skipped_count or ss.rejected_count,
                         "Duplicates": ss.duplicate_count,
-                        "Rejected": ss.rejected_count,
                         "Failed": ss.failed_count,
                         "Time (s)": ss.duration_seconds,
                         "Error": ss.error or "",
@@ -3057,6 +3107,12 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 default=[s for s in preset_sources if s in src_all],
             )
 
+            campaign_mode = st.selectbox(
+                "Collector mode override (optional)",
+                options=["", "playwright", "api_static", "hybrid"],
+                format_func=lambda x: "Use global setting" if x == "" else x,
+            )
+
             opt_col1, opt_col2, opt_col3, opt_col4 = st.columns(4)
             with opt_col1:
                 min_score = st.number_input(
@@ -3096,6 +3152,7 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     technologies=[t.strip() for t in technologies_raw.splitlines() if t.strip()],
                     locations=[lo.strip() for lo in locations_raw.splitlines() if lo.strip()],
                     sources=sources_chosen,
+                    collector_mode=campaign_mode,
                     min_score=int(min_score),
                     min_salary_b2b=int(min_salary),
                     require_salary=require_salary,
@@ -3159,7 +3216,12 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     with action_col1:
                         if st.button("Collect more offers", key=f"collect_{campaign.id}"):
                             from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
-                            from cv_sender.job_search import run_job_collection  # noqa: PLC0415
+                            from cv_sender.campaigns import resolve_campaign_collector_mode  # noqa: PLC0415
+                            from cv_sender.config import load_settings  # noqa: PLC0415
+                            from cv_sender.job_search import collect_jobs  # noqa: PLC0415
+
+                            settings_campaign = load_settings()
+                            mode = resolve_campaign_collector_mode(campaign, settings_campaign.job_search.collector_mode)
 
                             criteria = JobSearchCriteria(
                                 keywords=campaign.keywords or ["React Developer"],
@@ -3170,14 +3232,42 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                             )
                             sources = campaign.sources or ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
                             with st.spinner("Collecting offers …"):
-                                run_job_collection(criteria, sources, auto_score=True)
-                            st.success("Collection done.")
+                                report = collect_jobs(
+                                    criteria,
+                                    mode=mode,
+                                    source_names=sources,
+                                    auto_score=True,
+                                )
+                            st.success(
+                                f"Collection done (mode={mode}). Imported: {report.total_accepted}, failed: {report.total_failed}."
+                            )
                             st.rerun()
                     with action_col2:
-                        if st.button("Build/rebuild queue", key=f"buildq_{campaign.id}"):
+                        if st.button("Build campaign queue from search", key=f"buildq_{campaign.id}"):
                             from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                            from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+                            from cv_sender.campaigns import resolve_campaign_collector_mode  # noqa: PLC0415
+                            from cv_sender.config import load_settings  # noqa: PLC0415
+                            from cv_sender.job_search import collect_jobs  # noqa: PLC0415
+
+                            settings_campaign = load_settings()
+                            mode = resolve_campaign_collector_mode(campaign, settings_campaign.job_search.collector_mode)
+                            criteria = JobSearchCriteria(
+                                keywords=campaign.keywords or ["React Developer"],
+                                technologies=campaign.technologies or ["React"],
+                                locations=campaign.locations or ["Remote"],
+                                min_salary_b2b=campaign.min_salary_b2b,
+                                require_salary=campaign.require_salary,
+                            )
+                            sources = campaign.sources or ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
 
                             with st.spinner("Building queue …"):
+                                collect_jobs(
+                                    criteria,
+                                    mode=mode,
+                                    source_names=sources,
+                                    auto_score=True,
+                                )
                                 build_apply_queue_from_offers()
                                 attached = build_campaign_queue(
                                     campaign.id,
@@ -3339,11 +3429,14 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 src_rows = [
                     {
                         "Source": ss.source,
+                        "Collector": ss.collector_used,
                         "Status": ss.status,
+                        "Raw": ss.raw_found_count,
+                        "Job URLs": ss.job_offer_url_count or ss.found_count,
                         "Found": ss.found_count,
-                        "Accepted": ss.accepted_count,
+                        "Imported": ss.imported_count or ss.accepted_count,
+                        "Skipped": ss.skipped_count or ss.rejected_count,
                         "Duplicates": ss.duplicate_count,
-                        "Rejected": ss.rejected_count,
                         "Failed": ss.failed_count,
                         "Error": ss.error or "",
                     }

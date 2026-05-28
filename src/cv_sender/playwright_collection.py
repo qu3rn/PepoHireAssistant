@@ -244,9 +244,13 @@ def collect_import_and_score_with_playwright(
         source_summaries.append(
             SourceSummary(
                 source=result.source,
+                collector_used="playwright",
                 status=status,
                 raw_found_count=result.raw_link_count,
+                job_offer_url_count=result.job_url_count,
                 found_count=result.job_url_count,
+                imported_count=import_summary.imported_count if not collect_urls_only else result.job_url_count,
+                skipped_count=import_summary.skipped_count if not collect_urls_only else max(result.raw_link_count - result.job_url_count, 0),
                 accepted_count=import_summary.imported_count if not collect_urls_only else result.job_url_count,
                 duplicate_count=import_summary.duplicate_count,
                 rejected_count=max(result.raw_link_count - result.job_url_count, 0),
@@ -272,6 +276,7 @@ def collect_import_and_score_with_playwright(
             "min_salary_b2b": criteria.min_salary_b2b,
             "require_salary": criteria.require_salary,
             "exclude_keywords": list(criteria.exclude_keywords),
+            "collector_mode": "playwright",
             "mode": "playwright_collect_only" if collect_urls_only else "playwright_collect_import",
             "sources": list(sources),
         },

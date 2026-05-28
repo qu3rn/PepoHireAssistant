@@ -149,6 +149,11 @@ calendar:
 job_search:
   # Set to true to enable collection (disabled by default)
   enabled: false
+  # Collection mode: playwright | api | static | hybrid
+  # (api/static share the same pipeline; static is accepted as alias)
+  collector_mode: playwright
+  # In hybrid mode, run Playwright fallback if API/static yields 0 raw or 0 imported.
+  fallback_to_playwright: true
   # Role keywords to search for
   keywords:
     - React Developer

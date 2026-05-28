@@ -126,3 +126,9 @@ def test_save_and_load_lm_studio_config(tmp_path: Path) -> None:
     assert loaded.lm_studio.enabled is False
     assert loaded.lm_studio.base_url == "http://localhost:9999/v1"
     assert loaded.lm_studio.model == "my-local-model"
+
+
+def test_job_search_collector_mode_defaults_to_playwright() -> None:
+    settings = Settings()
+    assert settings.job_search.collector_mode == "playwright"
+    assert settings.job_search.fallback_to_playwright is True

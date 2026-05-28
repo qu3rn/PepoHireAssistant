@@ -81,9 +81,13 @@ class SourceSummary(BaseModel):
     """Per-source collection summary."""
 
     source: str
+    collector_used: str = ""
     status: Literal["ok", "partial", "failed"] = "ok"
     raw_found_count: int = 0    # items returned by the source API before local filtering
+    job_offer_url_count: int = 0
     found_count: int = 0        # items that passed local criteria filter
+    imported_count: int = 0
+    skipped_count: int = 0
     accepted_count: int = 0
     duplicate_count: int = 0
     rejected_count: int = 0
@@ -433,6 +437,7 @@ def collect_with_diagnostics(
 
         t0 = time.monotonic()
         ss = SourceSummary(source=name)
+        ss.collector_used = "api/static"
 
         collector = _get_collector(name)
         if collector is None:
@@ -467,6 +472,7 @@ def collect_with_diagnostics(
                 filtered_raw.append(offer)
 
         ss.found_count = len(filtered_raw)
+        ss.job_offer_url_count = ss.found_count
 
         if ss.raw_found_count > 0 and ss.found_count == 0:
             logger.info(
@@ -515,6 +521,7 @@ def collect_with_diagnostics(
                 existing_urls.add(offer.url)  # prevent duplicate within same run
                 total_imported += 1
                 ss.accepted_count += 1
+                ss.imported_count += 1
             elif outcome == "duplicate":
                 decision.decision = "duplicate"
                 decision.import_status = "duplicate"
@@ -530,6 +537,7 @@ def collect_with_diagnostics(
                 decision.decision = "rejected"
                 decision.import_status = "not_imported"
                 ss.rejected_count += 1
+                ss.skipped_count += 1
 
             all_decisions.append(decision)
 
@@ -545,6 +553,9 @@ def collect_with_diagnostics(
                     ss.error = "source returned 0 raw results"
             else:
                 ss.status = "ok"
+
+        if ss.skipped_count == 0 and ss.rejected_count > 0:
+            ss.skipped_count = ss.rejected_count
 
         source_summaries.append(ss)
 

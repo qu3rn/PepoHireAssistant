@@ -239,6 +239,9 @@ Each extracted offer shows **Extraction details** (collapsible) in the Offers pa
 
 ## Playwright job collection
 
+Playwright is now the default collection mode for `collect-jobs` and Job Search collection actions.
+API/static collectors are still available for faster runs, and hybrid mode combines both.
+
 Use the Playwright collector when the static/API collectors return 0 offers or when a board only exposes its listings reliably in a real browser session. The collector opens public listing/search pages, scrolls gradually, collects offer URLs, deduplicates them, and then reuses the existing URL import and scoring pipeline. It does not auto-submit applications.
 
 ### How it differs from the existing collectors
@@ -247,9 +250,61 @@ Use the Playwright collector when the static/API collectors return 0 offers or w
 - The Playwright collector only gathers public offer URLs from visible listing pages.
 - Imported URLs are then processed by the normal extractor/scorer stack.
 
+### Collector modes
+
+- `playwright` (default): browser-based URL collection from public listing pages.
+- `api` / `static` / `api_static`: existing API/static collectors.
+- `hybrid`: API/static first, then Playwright fallback when a source returns 0 raw results or 0 imported offers.
+
+Hybrid fallback diagnostics include a warning similar to:
+`API/static collector returned 0; Playwright fallback was used.`
+
 ### Run from the UI
 
 1. Open **Job Search**.
+2. In **Search Criteria & Collection**, choose **Collector mode**:
+   - Playwright browser collector
+   - API/static collector
+   - Hybrid: API/static first, then Playwright fallback
+3. (Optional) Keep **Enable Playwright fallback in hybrid mode** enabled.
+4. Use **Collect offers now**.
+
+You can still use the dedicated **Playwright Browser Collector** tab for direct browser-only control.
+
+### Run from the CLI
+
+```bash
+# Default mode from settings.job_search.collector_mode (default: playwright)
+cv-sender collect-jobs
+
+# Force Playwright mode
+cv-sender collect-jobs --mode playwright
+
+# Force API/static mode
+cv-sender collect-jobs --mode api
+
+# Hybrid mode with fallback
+cv-sender collect-jobs --mode hybrid
+```
+
+Emergency mode keeps Playwright by default unless you explicitly override mode:
+
+```bash
+cv-sender collect-jobs --emergency
+cv-sender collect-jobs --emergency --mode api
+```
+
+### Settings
+
+In `config/settings.yaml`:
+
+```yaml
+job_search:
+  collector_mode: playwright
+  fallback_to_playwright: true
+```
+
+`collector_mode` valid values: `playwright`, `api`, `static`, `api_static`, `hybrid`.
 2. Switch to **Playwright Browser Collector**.
 3. Choose sources, headless mode, max scrolls, and max URLs per source.
 4. Optionally paste custom listing URLs, one per line.
@@ -257,16 +312,16 @@ Use the Playwright collector when the static/API collectors return 0 offers or w
 
 The UI stores debug artifacts per run under `data/debug/playwright_collectors/<run_id>/<source>/`.
 
-### Run from the CLI
+### Additional Playwright CLI tools
 
 ```bash
-# Collect and import React/frontend URLs from the default Playwright sources
+# Collect and import React/frontend URLs from Playwright sources only
 cv-sender collect-playwright --emergency --max-urls 20
 
 # Collect URLs only for a single source in a visible browser
 cv-sender collect-playwright --source justjoin --no-import --max-urls 20
 
-# Smoke-test the browser collectors without importing
+# Smoke-test browser collectors without importing
 cv-sender debug-playwright-collectors
 ```
 
@@ -281,6 +336,9 @@ cv-sender debug-playwright-collectors
 ### Limitations
 
 - CAPTCHAs, login walls, and blocked pages are detected but never bypassed.
+- Playwright is slower than API/static collectors.
+- Playwright opens a browser session (unless headless mode is used).
+- Cookie banners can reduce visible/collectable links until accepted manually.
 - Websites may change their markup or URL patterns.
 - Headless mode may return fewer results on some sites; switch to `headless: false` when needed.
 - The collector starts with URLs from public listing pages and then relies on the existing importer/extractors.
