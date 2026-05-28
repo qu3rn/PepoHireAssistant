@@ -3555,69 +3555,358 @@ def _page_bookmarklet() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _page_debug() -> None:
-    st.title("Debug – Form filling runs")
-    st.caption(
-        "Shows the last 50 form-filling debug runs. "
-        "Enable `form_filling.debug: true` in settings to capture screenshots and form snapshots."
-    )
+def _load_json_file(path: Path) -> Any:
+    import json
 
-    runs = services.get_debug_runs(limit=50)
-    if not runs:
-        st.info("No debug runs found. Debug artifacts are stored under `data/debug/form_filling/`.")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _render_playwright_debug_file_preview(path: Path, label: str) -> None:
+    if not path.exists():
+        st.warning(f"Missing file: {path.name}")
         return
 
-    import pandas as pd
+    suffix = path.suffix.lower()
+    if suffix == ".png":
+        st.image(str(path), caption=label)
+        return
 
-    summary = pd.DataFrame(
+    if suffix == ".json":
+        payload = _load_json_file(path)
+        if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+            import pandas as pd
+
+            st.dataframe(pd.DataFrame(payload), use_container_width=True)
+            return
+        st.json(payload)
+        return
+
+    text = path.read_text(encoding="utf-8")
+    if suffix == ".md":
+        st.markdown(text)
+        return
+    st.code(text)
+
+
+def _render_playwright_debug_rerun_buttons(run: Any, settings: Settings, key_prefix: str) -> None:
+    from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+    from cv_sender.playwright_collection import debug_collect_source  # noqa: PLC0415
+
+    def _rerun(*, headless: bool | None = None, cookie_mode: str | None = None) -> None:
+        criteria = JobSearchCriteria.from_config(settings.job_search)
+        keyword = (getattr(run, "keyword", "") or getattr(run, "query", "") or "").strip()
+        if keyword:
+            criteria.keywords = [keyword]
+
+        override = {"cookie_mode": cookie_mode} if cookie_mode else None
+        effective_headless = getattr(run, "headless", None)
+        if headless is not None:
+            effective_headless = headless
+        if effective_headless is None:
+            effective_headless = False
+
+        with st.spinner(f"Running Playwright debug for {run.source} …"):
+            report = debug_collect_source(
+                source=run.source,
+                criteria=criteria,
+                listing_url=getattr(run, "listing_url", "") or None,
+                headless=bool(effective_headless),
+                max_scrolls=5,
+                save_html=False,
+                save_screenshot=True,
+                save_trace=False,
+                modal_settings_override=override,
+            )
+
+        st.session_state["pw_debug_report"] = report
+        st.session_state["pw_collector_debug_selected"] = f"{report.run_id}:{report.source}"
+        st.success(f"Debug run complete. Files saved to: {report.debug_dir}")
+        st.rerun()
+
+    col1, col2, col3, col4 = st.columns(4)
+    if col1.button("Rerun debug for this source", key=f"{key_prefix}_rerun_default"):
+        _rerun()
+    if col2.button("Rerun with headless=false", key=f"{key_prefix}_rerun_headed"):
+        _rerun(headless=False)
+    if col3.button("Rerun with accept_all cookies", key=f"{key_prefix}_rerun_accept"):
+        _rerun(cookie_mode="accept_all")
+    if col4.button("Rerun with reject_optional cookies", key=f"{key_prefix}_rerun_reject"):
+        _rerun(cookie_mode="reject_optional")
+
+
+def _render_playwright_debug_details(run: Any, settings: Settings) -> None:
+    metadata = _load_json_file(Path(run.files.get("metadata.json", ""))) if run.files.get("metadata.json") else {}
+    modal_actions = _load_json_file(Path(run.files.get("modal_actions.json", ""))) if run.files.get("modal_actions.json") else []
+    classified_links = _load_json_file(Path(run.files.get("classified_links.json", ""))) if run.files.get("classified_links.json") else []
+    job_cards = _load_json_file(Path(run.files.get("job_card_candidates.json", ""))) if run.files.get("job_card_candidates.json") else []
+    raw_links = _load_json_file(Path(run.files.get("links.json", ""))) if run.files.get("links.json") else []
+    modal_summary = dict((metadata or {}).get("modal_summary") or {}) if isinstance(metadata, dict) else {}
+
+    st.subheader("Selected Playwright collector run")
+    st.caption(f"{run.run_id} · {run.source} · {run.status}")
+    _render_playwright_debug_rerun_buttons(run, settings, f"detail_{run.run_id}_{run.source}")
+
+    tab_summary, tab_screens, tab_modals, tab_classified, tab_cards, tab_raw, tab_report, tab_files = st.tabs(
         [
-            {
-                "Started": r.started_at.strftime("%Y-%m-%d %H:%M"),
-                "Source": r.source,
-                "Filler": r.filler_name,
-                "Status": r.status,
-                "Fields filled": len(r.fields_filled),
-                "Fields missing": len(r.fields_missing),
-                "Warnings": len(r.warnings),
-                "Error": (r.error or "")[:60],
-                "Run ID": r.run_id[:8] + "…",
-                "_run_id": r.run_id,
-            }
-            for r in runs
+            "Summary",
+            "Screenshots",
+            "Cookie/modal actions",
+            "Classified links",
+            "Job card candidates",
+            "Raw links",
+            "Report markdown",
+            "Files",
         ]
     )
-    st.dataframe(summary.drop(columns=["_run_id"]), use_container_width=True)
+
+    with tab_summary:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Raw links", run.raw_links_count)
+        c2.metric("Job offers", run.job_offer_count)
+        c3.metric("Listings", run.listing_count)
+        c4.metric("Needs review", run.needs_review_count)
+        st.write(f"Debug folder: {run.debug_dir}")
+        st.write(f"Listing URL: {run.listing_url or '—'}")
+        st.write(f"Final URL: {run.final_url or '—'}")
+        st.write(f"Page title: {run.page_title or '—'}")
+        st.write(f"Keyword/query: {run.query or run.keyword or '—'}")
+        st.write(
+            "Flags: "
+            f"handler_called={'yes' if run.handler_called else 'no'} · "
+            f"cookie_before={'yes' if run.cookie_banner_visible_before else 'no'} · "
+            f"cookie_after={'yes' if run.cookie_banner_visible_after else 'no'} · "
+            f"captcha={'yes' if run.captcha_detected else 'no'} · "
+            f"login={'yes' if run.login_detected else 'no'} · "
+            f"blocked={'yes' if run.blocked_detected else 'no'}"
+        )
+        if modal_summary:
+            st.json(modal_summary)
+        for warning in getattr(run, "warnings", []):
+            st.warning(warning)
+
+    with tab_screens:
+        for label, name in (
+            ("Initial screenshot", "screenshot_initial.png"),
+            ("After modals", "screenshot_after_modals.png"),
+            ("After scroll", "screenshot_after_scroll.png"),
+        ):
+            file_path = Path(run.files[name]) if name in run.files else None
+            if file_path and file_path.exists():
+                st.image(str(file_path), caption=label)
+            else:
+                st.info(f"{label} not available.")
+
+    with tab_modals:
+        if isinstance(modal_actions, list) and modal_actions:
+            import pandas as pd
+
+            st.dataframe(pd.DataFrame(modal_actions), use_container_width=True)
+        else:
+            st.info("No modal actions recorded. This may mean the modal handler was not called.")
+        if modal_summary:
+            st.json(modal_summary)
+
+    with tab_classified:
+        if isinstance(classified_links, list) and classified_links:
+            import pandas as pd
+
+            st.dataframe(pd.DataFrame(classified_links), use_container_width=True)
+        else:
+            st.info("classified_links.json not available for this run.")
+
+    with tab_cards:
+        if isinstance(job_cards, list) and job_cards:
+            import pandas as pd
+
+            st.dataframe(pd.DataFrame(job_cards), use_container_width=True)
+        else:
+            st.info("job_card_candidates.json not available for this run.")
+
+    with tab_raw:
+        if isinstance(raw_links, dict):
+            st.json(raw_links)
+        elif isinstance(raw_links, list) and raw_links:
+            if isinstance(raw_links[0], dict):
+                import pandas as pd
+
+                st.dataframe(pd.DataFrame(raw_links), use_container_width=True)
+            else:
+                st.json(raw_links)
+        else:
+            st.info("links.json not available for this run.")
+
+    with tab_report:
+        report_path = Path(run.files["debug_report.md"]) if "debug_report.md" in run.files else None
+        if report_path and report_path.exists():
+            st.markdown(report_path.read_text(encoding="utf-8"))
+        else:
+            st.info("debug_report.md not available for this run.")
+
+    with tab_files:
+        for name, file_path in sorted(run.files.items()):
+            st.write(f"{name}: {file_path}")
+            with st.expander(f"Preview {name}", expanded=False):
+                _render_playwright_debug_file_preview(Path(file_path), name)
+
+
+def _render_playwright_debug_runs(settings: Settings) -> None:
+    from cv_sender.playwright_debugger import discover_playwright_debug_runs  # noqa: PLC0415
+
+    runs = discover_playwright_debug_runs(limit=10)
+    st.subheader("Playwright Collector Debug")
+    st.caption("Latest runs discovered under data/debug/playwright_collectors/.")
+    if not runs:
+        st.info("No Playwright collector debug runs found.")
+        return
+
+    selected_run_key = st.session_state.get("pw_collector_debug_selected")
+    if not selected_run_key:
+        selected_run_key = f"{runs[0].run_id}:{runs[0].source}"
+        st.session_state["pw_collector_debug_selected"] = selected_run_key
+
+    preview_state = st.session_state.get("pw_collector_debug_preview")
+
+    for run in runs:
+        run_key = f"{run.run_id}:{run.source}"
+        st.markdown("---")
+        st.markdown(f"**{run.source}** · {run.run_id[:8]}… · {run.status}")
+
+        top1, top2 = st.columns([3, 2])
+        with top1:
+            st.write(f"Started: {run.started_at.strftime('%Y-%m-%d %H:%M:%S') if run.started_at else '—'}")
+            st.write(f"Keyword/query: {run.query or run.keyword or '—'}")
+            st.write(f"Listing URL: {run.listing_url or '—'}")
+            st.write(f"Final URL: {run.final_url or '—'}")
+            st.write(f"Page title: {run.page_title or '—'}")
+        with top2:
+            st.write(f"Debug folder: {run.debug_dir}")
+            st.write(
+                "Flags: "
+                f"modal_actions={run.modal_actions_count} · "
+                f"captcha={'yes' if run.captcha_detected else 'no'} · "
+                f"login={'yes' if run.login_detected else 'no'} · "
+                f"blocked={'yes' if run.blocked_detected else 'no'}"
+            )
+            st.write(
+                "Cookie visibility: "
+                f"before={'yes' if run.cookie_banner_visible_before else 'no'} · "
+                f"after={'yes' if run.cookie_banner_visible_after else 'no'} · "
+                f"handler_called={'yes' if run.handler_called else 'no'}"
+            )
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Raw links", run.raw_links_count)
+        m2.metric("Job offers", run.job_offer_count)
+        m3.metric("Listings", run.listing_count)
+        m4.metric("Needs review", run.needs_review_count)
+        m5.metric("Unknown", run.unknown_count)
+
+        if run.metadata_missing:
+            st.warning(f"metadata.json missing for {run.run_id}/{run.source}")
+        for warning in run.warnings:
+            st.warning(warning)
+
+        action_cols = st.columns(7)
+        if action_cols[0].button("Open details", key=f"open_details_{run_key}"):
+            st.session_state["pw_collector_debug_selected"] = run_key
+        for idx, (label, file_name) in enumerate(
+            [
+                ("Open screenshot initial", "screenshot_initial.png"),
+                ("Open screenshot after scroll", "screenshot_after_scroll.png"),
+                ("Open debug_report.md", "debug_report.md"),
+                ("Open links.json", "links.json"),
+                ("Open classified_links.json", "classified_links.json"),
+                ("Open modal_actions.json", "modal_actions.json"),
+            ],
+            start=1,
+        ):
+            disabled = file_name not in run.files
+            if action_cols[idx].button(label, key=f"preview_{file_name}_{run_key}", disabled=disabled):
+                st.session_state["pw_collector_debug_preview"] = {"run_key": run_key, "file_name": file_name}
+
+        _render_playwright_debug_rerun_buttons(run, settings, f"card_{run.run_id}_{run.source}")
+
+        if preview_state and preview_state.get("run_key") == run_key:
+            preview_file = preview_state.get("file_name", "")
+            preview_path = Path(run.files.get(preview_file, "")) if preview_file in run.files else None
+            with st.expander(f"Preview: {preview_file}", expanded=True):
+                if preview_path is not None:
+                    _render_playwright_debug_file_preview(preview_path, preview_file)
+                else:
+                    st.warning("Selected file is no longer available.")
+
+    selected_run = next((run for run in runs if f"{run.run_id}:{run.source}" == st.session_state.get("pw_collector_debug_selected")), runs[0])
+    st.markdown("---")
+    _render_playwright_debug_details(selected_run, settings)
+
+
+def _page_debug() -> None:
+    st.title("Debug")
+    st.caption("Inspect stored form-filling and Playwright collector debug runs.")
+
+    runs = services.get_debug_runs(limit=50)
+    st.subheader("Form filling debug")
+    st.caption("Last 50 form-filling debug runs stored under data/debug/form_filling/.")
+    if not runs:
+        st.info("No form-filling debug runs found. Enable form_filling.debug in settings to capture them.")
+    else:
+        import pandas as pd
+
+        summary = pd.DataFrame(
+            [
+                {
+                    "Started": r.started_at.strftime("%Y-%m-%d %H:%M"),
+                    "Source": r.source,
+                    "Filler": r.filler_name,
+                    "Status": r.status,
+                    "Fields filled": len(r.fields_filled),
+                    "Fields missing": len(r.fields_missing),
+                    "Warnings": len(r.warnings),
+                    "Error": (r.error or "")[:60],
+                    "Run ID": r.run_id[:8] + "…",
+                    "_run_id": r.run_id,
+                }
+                for r in runs
+            ]
+        )
+        st.dataframe(summary.drop(columns=["_run_id"]), use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("Inspect a form-filling run")
+        run_options = {r.run_id[:8] + "… " + r.started_at.strftime("%Y-%m-%d %H:%M") + f" [{r.source}]": r.run_id for r in runs}
+        selected_label = st.selectbox("Select run", list(run_options.keys()))
+        if selected_label:
+            selected_run_id = run_options[selected_label]
+            run = services.get_debug_run(selected_run_id)
+            if run:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Status", run.status)
+                c2.metric("Fields filled", len(run.fields_filled))
+                c3.metric("Fields missing", len(run.fields_missing))
+
+                st.markdown(f"**URL:** {run.url or '—'}")
+                st.markdown(f"**Offer ID:** `{run.offer_id or '—'}`")
+                st.markdown(f"**Filler:** {run.filler_name or '—'}")
+                st.markdown(f"**Run ID:** `{run.run_id}`")
+
+                if run.fields_filled:
+                    st.success("Filled: " + ", ".join(run.fields_filled))
+                if run.fields_missing:
+                    st.warning("Missing: " + ", ".join(run.fields_missing))
+                for w in run.warnings:
+                    st.warning(w)
+                if run.error:
+                    st.error(run.error)
+                if run.fields_detected_summary:
+                    st.json(run.fields_detected_summary)
+
+                _render_debug_artifacts(run.run_id, run.screenshot_path)
 
     st.markdown("---")
-    st.subheader("Inspect a run")
-    run_options = {r.run_id[:8] + "… " + r.started_at.strftime("%Y-%m-%d %H:%M") + f" [{r.source}]": r.run_id for r in runs}
-    selected_label = st.selectbox("Select run", list(run_options.keys()))
-    if selected_label:
-        selected_run_id = run_options[selected_label]
-        run = services.get_debug_run(selected_run_id)
-        if run:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Status", run.status)
-            c2.metric("Fields filled", len(run.fields_filled))
-            c3.metric("Fields missing", len(run.fields_missing))
-
-            st.markdown(f"**URL:** {run.url or '—'}")
-            st.markdown(f"**Offer ID:** `{run.offer_id or '—'}`")
-            st.markdown(f"**Filler:** {run.filler_name or '—'}")
-            st.markdown(f"**Run ID:** `{run.run_id}`")
-
-            if run.fields_filled:
-                st.success("Filled: " + ", ".join(run.fields_filled))
-            if run.fields_missing:
-                st.warning("Missing: " + ", ".join(run.fields_missing))
-            for w in run.warnings:
-                st.warning(w)
-            if run.error:
-                st.error(run.error)
-            if run.fields_detected_summary:
-                st.json(run.fields_detected_summary)
-
-            _render_debug_artifacts(run.run_id, run.screenshot_path)
+    _render_playwright_debug_runs(load_settings())
 
 
 # ---------------------------------------------------------------------------

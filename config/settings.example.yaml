@@ -223,8 +223,10 @@ playwright:
     cookie_mode: reject_optional # accept_all | reject_optional | close_only | disabled
     close_newsletters: true
     close_generic_overlays: true
-    max_attempts: 3
-    timeout_ms: 3000
+    max_attempts: 4
+    timeout_ms: 5000
+    retry_delay_ms: 750
+    screenshot_after_handling: true
 
 playwright_collection:
   enabled: true

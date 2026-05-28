@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from cv_sender.collectors.base import JobSearchCriteria
 from cv_sender.collectors.playwright_base import classify_collected_url, classify_page
-from cv_sender.playwright_helpers import handle_common_modals
+from cv_sender.playwright_helpers import detect_cookie_banner_visible, handle_common_modals
 from cv_sender.relevance import EmergencyReactMode, match_offer_relevance
 
 try:
@@ -85,8 +85,9 @@ class PlaywrightCollectorDebugReport(BaseModel):
     new_links_per_scroll: list[int] = Field(default_factory=list)
     detected_cookie_banner: bool = False
     cookie_banner_handled: bool = False
-    modal_actions: list[str] = Field(default_factory=list)
+    modal_actions: list[dict[str, Any]] = Field(default_factory=list)
     modal_warnings: list[str] = Field(default_factory=list)
+    modal_summary: dict[str, Any] = Field(default_factory=dict)
     detected_login_wall: bool = False
     detected_captcha: bool = False
     detected_blocked_page: bool = False
@@ -94,6 +95,127 @@ class PlaywrightCollectorDebugReport(BaseModel):
     debug_dir: str = ""
     summary_counts: dict[str, int] = Field(default_factory=dict)
     suggested_next_fix: str = ""
+
+
+class PlaywrightCollectorDebugRunSummary(BaseModel):
+    run_id: str
+    source: str
+    started_at: datetime | None = None
+    headless: bool | None = None
+    keyword: str = ""
+    query: str = ""
+    listing_url: str = ""
+    final_url: str = ""
+    page_title: str = ""
+    status: str = "unknown"
+    raw_links_count: int = 0
+    job_offer_count: int = 0
+    listing_count: int = 0
+    needs_review_count: int = 0
+    unknown_count: int = 0
+    modal_actions_count: int = 0
+    handler_called: bool = False
+    cookie_banner_visible_before: bool = False
+    cookie_banner_visible_after: bool = False
+    captcha_detected: bool = False
+    login_detected: bool = False
+    blocked_detected: bool = False
+    debug_dir: str = ""
+    files: dict[str, str] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    metadata_missing: bool = False
+
+
+def _safe_json_load(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _parse_debug_datetime(value: Any) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _build_run_summary(run_dir: Path) -> PlaywrightCollectorDebugRunSummary:
+    metadata_path = run_dir / "metadata.json"
+    metadata = _safe_json_load(metadata_path) if metadata_path.exists() else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    modal_summary = metadata.get("modal_summary") or {}
+    if not isinstance(modal_summary, dict):
+        modal_summary = {}
+
+    files = {path.name: str(path) for path in run_dir.iterdir() if path.is_file()}
+    modal_actions_payload = _safe_json_load(run_dir / "modal_actions.json") or []
+    summary_counts = metadata.get("summary_counts") or {}
+    if not isinstance(summary_counts, dict):
+        summary_counts = {}
+
+    warnings = list(metadata.get("warnings") or [])
+    metadata_missing = not metadata_path.exists()
+    if metadata_missing:
+        warnings.append("metadata.json missing")
+
+    run_id = metadata.get("run_id") or run_dir.parent.name
+    source = metadata.get("source") or run_dir.name
+    started_at = _parse_debug_datetime(metadata.get("started_at") or metadata.get("timestamp"))
+
+    return PlaywrightCollectorDebugRunSummary(
+        run_id=run_id,
+        source=source,
+        started_at=started_at,
+        headless=(bool(metadata.get("headless")) if "headless" in metadata else None),
+        keyword=str(metadata.get("keyword") or ""),
+        query=str(metadata.get("query") or metadata.get("keyword") or ""),
+        listing_url=str(metadata.get("listing_url") or ""),
+        final_url=str(metadata.get("final_url_after_redirect") or metadata.get("final_url") or ""),
+        page_title=str(metadata.get("page_title") or ""),
+        status=str(metadata.get("status") or ("warning" if warnings else "unknown")),
+        raw_links_count=int(metadata.get("raw_link_count") or summary_counts.get("raw_links_found") or 0),
+        job_offer_count=int(metadata.get("job_offer_count") or summary_counts.get("job_offer") or 0),
+        listing_count=int(metadata.get("listing_count") or summary_counts.get("listing") or 0),
+        needs_review_count=int(metadata.get("needs_review_count") or summary_counts.get("needs_review") or 0),
+        unknown_count=int(metadata.get("unknown_count") or summary_counts.get("unknown") or 0),
+        modal_actions_count=int(modal_summary.get("actions_count") or len(modal_actions_payload or [])),
+        handler_called=bool(modal_summary.get("handler_called", False)),
+        cookie_banner_visible_before=bool(modal_summary.get("cookie_banner_visible_before", False)),
+        cookie_banner_visible_after=bool(modal_summary.get("cookie_banner_visible_after", False)),
+        captcha_detected=bool(metadata.get("detected_captcha", False)),
+        login_detected=bool(metadata.get("detected_login_wall", False)),
+        blocked_detected=bool(metadata.get("detected_blocked_page", False)),
+        debug_dir=str(run_dir),
+        files=files,
+        warnings=list(dict.fromkeys(warnings)),
+        metadata_missing=metadata_missing,
+    )
+
+
+def discover_playwright_debug_runs(limit: int = 10, base_dir: Path | None = None) -> list[PlaywrightCollectorDebugRunSummary]:
+    debug_base = base_dir or _DEBUG_BASE
+    if not debug_base.exists():
+        return []
+
+    runs: list[PlaywrightCollectorDebugRunSummary] = []
+    for run_root in debug_base.iterdir():
+        if not run_root.is_dir():
+            continue
+        for source_dir in run_root.iterdir():
+            if not source_dir.is_dir():
+                continue
+            runs.append(_build_run_summary(source_dir))
+
+    runs.sort(
+        key=lambda item: item.started_at or datetime.fromtimestamp(Path(item.debug_dir).stat().st_mtime, tz=UTC),
+        reverse=True,
+    )
+    return runs[:limit]
 
 
 def _collector_for_source(source: str):
@@ -509,6 +631,7 @@ def debug_collect_source(
     save_html: bool = False,
     save_screenshot: bool = True,
     save_trace: bool = False,
+    modal_settings_override: dict[str, Any] | None = None,
 ) -> PlaywrightCollectorDebugReport:
     """Run a single-source Playwright debug session and write detailed artifacts."""
     if sync_playwright is None:
@@ -539,17 +662,21 @@ def debug_collect_source(
     new_links_per_scroll: list[int] = []
     stopped_reason = "max_scrolls_reached"
     scroll_count = 0
-    modal_actions: list[str] = []
+    modal_actions: list[dict[str, Any]] = []
     modal_warnings: list[str] = []
     cookie_banner_handled = False
+    modal_summary: dict[str, Any] = {}
     modal_settings: Any = None
 
     try:
         from cv_sender.config import load_settings  # noqa: PLC0415
 
         modal_settings = load_settings()
+        if modal_settings_override:
+            modal_cfg = modal_settings.playwright.modals.model_copy(update=modal_settings_override)
+            modal_settings.playwright = modal_settings.playwright.model_copy(update={"modals": modal_cfg})
     except Exception:  # noqa: BLE001
-        modal_settings = None
+        modal_settings = modal_settings_override or None
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless)
@@ -565,11 +692,18 @@ def debug_collect_source(
         try:
             page.set_default_timeout(page_timeout_ms)
             page.goto(selected_listing_url, wait_until="domcontentloaded")
-            page.wait_for_load_state("networkidle", timeout=min(page_timeout_ms, 12000))
+            try:
+                page.wait_for_load_state("networkidle", timeout=min(page_timeout_ms, 12000))
+            except Exception:  # noqa: BLE001
+                pass
+            page.wait_for_timeout(400)
+
+            if save_screenshot:
+                page.screenshot(path=str(run_dir / "screenshot_initial.png"), full_page=False)
 
             modal_result = handle_common_modals(page, modal_settings, context="debug")
             modal_actions = [
-                f"{a.type}:{a.status}:{a.selector_or_text}"
+                a.model_dump(mode="json")
                 for a in modal_result.actions_taken
             ]
             modal_warnings = list(modal_result.warnings)
@@ -577,7 +711,19 @@ def debug_collect_source(
                 a.type in {"cookie_accept", "cookie_reject", "cookie_close"} and a.status == "success"
                 for a in modal_result.actions_taken
             )
+            modal_summary = {
+                "handler_called": bool(modal_result.handler_called),
+                "cookie_banner_visible_before": bool(modal_result.cookie_banner_visible_before),
+                "cookie_banner_visible_after": bool(modal_result.cookie_banner_visible_after),
+                "actions_count": len(modal_actions),
+                "actions_success_count": sum(1 for action in modal_actions if action.get("status") == "success"),
+                "warnings": list(modal_warnings),
+            }
             warnings.extend(modal_result.warnings)
+
+            if save_screenshot:
+                page.wait_for_timeout(350)
+                page.screenshot(path=str(run_dir / "screenshot_after_modals.png"), full_page=False)
 
             if modal_result.blocked_by_captcha:
                 warnings.append("CAPTCHA detected; debug run stopped without bypass.")
@@ -600,9 +746,6 @@ def debug_collect_source(
             body_text = page.inner_text("body") or ""
             raw_html = page.content() or ""
 
-            if save_screenshot:
-                page.screenshot(path=str(run_dir / "screenshot_initial.png"), full_page=False)
-
             links_before = extract_all_links_with_context(page, selected_listing_url)
             all_links_after_scroll = list(links_before)
             seen_link_keys = {(x.absolute_url, x.visible_text, x.parent_text_preview) for x in links_before}
@@ -613,6 +756,21 @@ def debug_collect_source(
                 page.evaluate("window.scrollBy(0, Math.floor(window.innerHeight * 0.85));")
                 time.sleep(1.0)
                 page.wait_for_timeout(250)
+
+                if idx == 0 and detect_cookie_banner_visible(page):
+                    retry_modal_result = handle_common_modals(page, modal_settings, context="debug")
+                    retry_actions = [action.model_dump(mode="json") for action in retry_modal_result.actions_taken]
+                    modal_actions.extend(retry_actions)
+                    modal_warnings.extend(retry_modal_result.warnings)
+                    warnings.extend(retry_modal_result.warnings)
+                    modal_summary = {
+                        "handler_called": bool(modal_summary.get("handler_called", False) or retry_modal_result.handler_called),
+                        "cookie_banner_visible_before": bool(modal_summary.get("cookie_banner_visible_before", False)),
+                        "cookie_banner_visible_after": bool(retry_modal_result.cookie_banner_visible_after),
+                        "actions_count": len(modal_actions),
+                        "actions_success_count": sum(1 for action in modal_actions if action.get("status") == "success"),
+                        "warnings": list(dict.fromkeys(modal_warnings)),
+                    }
 
                 current = extract_all_links_with_context(page, selected_listing_url)
                 added = 0
@@ -664,6 +822,16 @@ def debug_collect_source(
     detected_blocked_page = page_class == "blocked"
     detected_cookie_banner = _cookie_banner_detected(body_text)
 
+    if not modal_summary:
+        modal_summary = {
+            "handler_called": False,
+            "cookie_banner_visible_before": False,
+            "cookie_banner_visible_after": False,
+            "actions_count": 0,
+            "actions_success_count": 0,
+            "warnings": list(dict.fromkeys(modal_warnings)),
+        }
+
     if summary["raw_links_found"] > 0 and summary["job_offer"] == 0:
         warnings.append("Found many raw links but zero job_offer URLs.")
     if cards and summary["raw_links_found"] == 0:
@@ -712,6 +880,7 @@ def debug_collect_source(
         cookie_banner_handled=cookie_banner_handled,
         modal_actions=modal_actions,
         modal_warnings=modal_warnings,
+        modal_summary=modal_summary,
         detected_login_wall=detected_login_wall,
         detected_captcha=detected_captcha,
         detected_blocked_page=detected_blocked_page,
@@ -722,6 +891,7 @@ def debug_collect_source(
     )
 
     _write_json(run_dir / "metadata.json", report.model_dump(mode="json"))
+    _write_json(run_dir / "modal_actions.json", modal_actions)
     _write_json(run_dir / "links.json", [x.model_dump(mode="json") for x in all_links_after_scroll])
     _write_json(run_dir / "classified_links.json", [x.model_dump(mode="json") for x in classified_links])
     _write_json(run_dir / "job_card_candidates.json", [x.model_dump(mode="json") for x in cards])

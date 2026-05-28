@@ -351,6 +351,7 @@ def debug_collect_source(
     save_html: bool = False,
     save_screenshot: bool = True,
     save_trace: bool = False,
+    modal_settings_override: dict[str, object] | None = None,
 ):
     """Run source-level Playwright debugging and save detailed artifacts.
 
@@ -368,6 +369,7 @@ def debug_collect_source(
         save_html=save_html,
         save_screenshot=save_screenshot,
         save_trace=save_trace,
+        modal_settings_override=modal_settings_override,
     )
 
 

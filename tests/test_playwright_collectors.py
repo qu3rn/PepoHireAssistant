@@ -5,6 +5,7 @@ Uses mock Playwright Page objects — does NOT hit real websites.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -700,6 +701,27 @@ def test_collect_urls_unknown_urls_recorded_in_diagnostics(
 
     assert result.job_url_count == 0
     assert any(item.url.endswith("/oferta/react_dev") for item in result.needs_review_urls)
+
+
+def test_collect_urls_records_modal_summary_and_actions(
+    broad_criteria: JobSearchCriteria, minimal_cfg, tmp_path: object, monkeypatch
+) -> None:
+    job_hrefs = ["https://justjoin.it/job-offer/react-developer-acme"]
+    mock_pw_cm, _ = _make_mock_playwright_context("Cookies and React jobs", job_hrefs)
+    debug_base = __import__("pathlib").Path(str(tmp_path))
+    monkeypatch.setattr("cv_sender.collectors.playwright_base._DEBUG_BASE", debug_base)
+
+    with patch("cv_sender.collectors.playwright_base.sync_playwright", return_value=mock_pw_cm):
+        collector = PlaywrightJustJoinCollector()
+        result = collector.collect_urls(broad_criteria, minimal_cfg)
+
+    run_dir = debug_base / result.run_id / collector.source
+    metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+    modal_actions = json.loads((run_dir / "modal_actions.json").read_text(encoding="utf-8"))
+
+    assert result.modal_handler_called is True
+    assert metadata["modal_summary"]["handler_called"] is True
+    assert isinstance(modal_actions, list)
 
 
 def test_import_collected_urls_skips_irrelevant_job_offer_before_import() -> None:
