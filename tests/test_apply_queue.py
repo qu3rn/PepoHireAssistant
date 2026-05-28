@@ -334,6 +334,73 @@ class TestAddToApplyQueue:
         assert len(load_apply_queue(queue_path)) == 2
 
 
+class TestQueueSync:
+    def test_sync_queue_item_from_offer_refreshes_snapshot(self, tmp_path, monkeypatch):
+        from cv_sender.apply_queue import sync_queue_item_from_offer  # noqa: PLC0415
+        from cv_sender.storage import save_apply_queue, save_offers  # noqa: PLC0415
+
+        import cv_sender.storage as _storage  # noqa: PLC0415
+
+        offers_path = tmp_path / "offers.json"
+        queue_path = tmp_path / "queue.json"
+        monkeypatch.setattr(_storage, "_DEFAULT_OFFERS", offers_path)
+
+        offer = Offer(
+            id="offer-1",
+            url="https://example.com/job/1",
+            title="Clean Title",
+            company="ACME Updated",
+            source="manual",
+            score=91,
+            decision_reasons=["strong fit"],
+            extraction_warnings=["verify location"],
+        )
+        save_offers([offer], path=offers_path)
+
+        queue_item = ApplyQueueItem(
+            offer_id=offer.id,
+            title="old-slug-title",
+            company="Old Company",
+            source="manual",
+            priority_score=1.0,
+        )
+        save_apply_queue([queue_item], path=queue_path)
+
+        updated = sync_queue_item_from_offer(queue_item.id, queue_path)
+
+        assert updated is not None
+        assert updated.title == "Clean Title"
+        assert updated.company == "ACME Updated"
+        assert updated.score == 91
+        assert "strong fit" in updated.reasons
+        assert "verify location" in updated.warnings
+
+    def test_sync_all_queue_items_from_offers_updates_multiple_rows(self, tmp_path, monkeypatch):
+        from cv_sender.apply_queue import sync_all_queue_items_from_offers  # noqa: PLC0415
+        from cv_sender.storage import save_apply_queue, save_offers  # noqa: PLC0415
+
+        import cv_sender.storage as _storage  # noqa: PLC0415
+
+        offers_path = tmp_path / "offers.json"
+        queue_path = tmp_path / "queue.json"
+        monkeypatch.setattr(_storage, "_DEFAULT_OFFERS", offers_path)
+        monkeypatch.setattr(_storage, "_DEFAULT_APPLY_QUEUE", queue_path)
+
+        offer_one = Offer(id="o1", url="https://example.com/1", title="One Clean", company="One Co", source="manual")
+        offer_two = Offer(id="o2", url="https://example.com/2", title="Two Clean", company="Two Co", source="manual")
+        save_offers([offer_one, offer_two], path=offers_path)
+
+        queue_items = [
+            ApplyQueueItem(offer_id="o1", title="one slug", company="old 1", source="manual", priority_score=1.0),
+            ApplyQueueItem(offer_id="o2", title="two slug", company="old 2", source="manual", priority_score=1.0),
+        ]
+        save_apply_queue(queue_items, path=queue_path)
+
+        changed = sync_all_queue_items_from_offers(queue_path)
+
+        assert changed == 2
+
+
 # ---------------------------------------------------------------------------
 # Config: JobSearchConfig defaults
 # ---------------------------------------------------------------------------

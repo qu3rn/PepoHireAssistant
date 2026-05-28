@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -97,6 +98,56 @@ def test_add_offer_manual_stores_technologies() -> None:
     stored = load_offers()[0]
     assert "React" in stored.technologies
     assert "TypeScript" in stored.technologies
+
+
+def test_import_offer_from_url_normalizes_slug_title() -> None:
+    from cv_sender.services import import_offer_from_url
+
+    draft = SimpleNamespace(
+        title="",
+        company="",
+        location="",
+        contract="",
+        salary_min=None,
+        salary_max=None,
+        currency="PLN",
+        technologies=[],
+        description="",
+        extraction_source="pracuj_jsonld",
+        extraction_confidence=0.9,
+        extraction_warnings=[],
+    )
+
+    with patch("cv_sender.extractors.extract_offer", return_value=draft):
+        result = import_offer_from_url(
+            "https://pracuj.pl/praca/backend-developer,123456",
+            auto_score=False,
+        )
+
+    assert result.status == "imported"
+    stored = load_offers()[0]
+    assert stored.title == "Backend Developer"
+    assert stored.extraction_source.endswith("url_slug_fallback")
+    assert any("slug" in warning.lower() for warning in stored.extraction_warnings)
+
+
+def test_re_normalize_offers_cleans_existing_titles() -> None:
+    from cv_sender.services import re_normalize_offers
+
+    offer = Offer(
+        url="https://pracuj.pl/praca/backend-developer,123456",
+        title="backend-developer,oferta,123456",
+        company="  ACME  ",
+    )
+    save_offers([offer])
+
+    total, changed = re_normalize_offers()
+
+    assert total == 1
+    assert changed == 1
+    stored = load_offers()[0]
+    assert stored.title == "Backend Developer"
+    assert stored.company == "ACME"
 
 
 # ---------------------------------------------------------------------------

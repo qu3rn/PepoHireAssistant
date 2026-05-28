@@ -30,6 +30,7 @@ from cv_sender.storage import (
     update_application,
     update_offer,
 )
+from cv_sender.title_utils import normalize_company_name, normalize_offer_title
 from cv_sender.url_utils import infer_source, is_valid_url, normalize_url, parse_url_lines
 
 
@@ -56,10 +57,11 @@ def add_offer_manual(
     Returns ``(True, offer)`` on success, ``(False, offer)`` if the URL is a
     duplicate (the returned offer is the unsaved one).
     """
+    normalized_title = normalize_offer_title(title, source=source, url=url)
     offer = Offer(
         url=url,
-        title=title,
-        company=company,
+        title=normalized_title or title,
+        company=normalize_company_name(company),
         source=source,
         location=location,
         contract=contract,
@@ -140,19 +142,31 @@ def import_offer_from_url(
     except Exception:  # noqa: BLE001
         draft = None  # type: ignore[assignment]
 
-    # Determine title: extracted value preferred; fall back to URL path segment.
-    if draft and draft.title:
-        title = draft.title[:120]
-    else:
+    draft_title = draft.title if draft else ""
+    title = normalize_offer_title(draft_title, source=source, url=norm_url)
+    title_inferred_from_url = not draft_title.strip() and bool(title)
+    if not title:
         path_parts = [p for p in urlparse(norm_url).path.split("/") if p]
         raw_title = path_parts[-1].replace("-", " ").replace("_", " ") if path_parts else norm_url
-        title = raw_title[:120]
+        title = normalize_offer_title(raw_title, source=source, url=norm_url)
+        title_inferred_from_url = True
+
+    company = normalize_company_name(draft.company if draft else "")
+    warnings = list(draft.extraction_warnings if draft else [])
+    extraction_source = draft.extraction_source if draft else ""
+    extraction_confidence = draft.extraction_confidence if draft else 0.0
+    if title_inferred_from_url:
+        extraction_source = f"{extraction_source or 'unknown'}+url_slug_fallback"
+        extraction_confidence = min(extraction_confidence or 0.0, 0.25)
+        warnings.append("Title was inferred from URL slug; verify offer details.")
+    if not company:
+        warnings.append("Company was not detected.")
 
     offer = Offer(
         url=norm_url,
         title=title,
         source=source,
-        company=draft.company if draft else "",
+        company=company,
         location=draft.location if draft else "",
         contract=draft.contract if draft else "",
         salary_min=draft.salary_min if draft else None,
@@ -160,9 +174,9 @@ def import_offer_from_url(
         currency=draft.currency if draft else "PLN",
         technologies=draft.technologies if draft else [],
         description=draft.description if draft else "",
-        extraction_source=draft.extraction_source if draft else "",
-        extraction_confidence=draft.extraction_confidence if draft else 0.0,
-        extraction_warnings=draft.extraction_warnings if draft else [],
+        extraction_source=extraction_source,
+        extraction_confidence=extraction_confidence,
+        extraction_warnings=warnings,
     )
     saved = add_offer(offer)
 
@@ -213,6 +227,34 @@ def import_offer_from_url(
         company=offer.company,
         title=offer.title,
     )
+
+
+def re_normalize_offers() -> tuple[int, int]:
+    """Normalize stored offer titles and companies in place.
+
+    Returns ``(total_offers, changed_offers)``.
+    """
+
+    offers = load_offers()
+    changed = 0
+    updated_offers: list[Offer] = []
+
+    for offer in offers:
+        normalized_title = normalize_offer_title(offer.title, source=offer.source, url=offer.url)
+        normalized_company = normalize_company_name(offer.company)
+        updated = offer.model_copy(update={"title": normalized_title or offer.title, "company": normalized_company})
+        if updated.title != offer.title or updated.company != offer.company:
+            changed += 1
+        updated_offers.append(updated)
+
+    if changed:
+        update_offer_map = {o.id: o for o in updated_offers}
+        save_ordered = [update_offer_map[o.id] for o in offers]
+        from cv_sender.storage import save_offers as _save_offers  # noqa: PLC0415
+
+        _save_offers(save_ordered)
+
+    return len(offers), changed
 
 
 _DEFAULT_MAX_URLS = 20
