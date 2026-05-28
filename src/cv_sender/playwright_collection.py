@@ -334,6 +334,36 @@ def collect_job_urls(
     return results
 
 
+def debug_collect_source(
+    source: str,
+    criteria: JobSearchCriteria,
+    listing_url: str | None = None,
+    *,
+    headless: bool = False,
+    max_scrolls: int = 5,
+    save_html: bool = False,
+    save_screenshot: bool = True,
+    save_trace: bool = False,
+):
+    """Run source-level Playwright debugging and save detailed artifacts.
+
+    This function is read-only with respect to offers storage: it does not import
+    or score offers in storage. It only produces debug files.
+    """
+    from cv_sender.playwright_debugger import debug_collect_source as _debug_collect_source  # noqa: PLC0415
+
+    return _debug_collect_source(
+        source=source,
+        criteria=criteria,
+        listing_url=listing_url,
+        headless=headless,
+        max_scrolls=max_scrolls,
+        save_html=save_html,
+        save_screenshot=save_screenshot,
+        save_trace=save_trace,
+    )
+
+
 def collect_and_import(
     criteria: JobSearchCriteria,
     sources: list[str],

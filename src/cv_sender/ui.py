@@ -2592,6 +2592,88 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     f"Failed: {pw_result['total_failed']}"
                 )
 
+        st.markdown("---")
+        st.subheader("Playwright Source Debugger")
+
+        col_dbg1, col_dbg2, col_dbg3 = st.columns(3)
+        with col_dbg1:
+            dbg_source = st.selectbox(
+                "Source",
+                ["rocketjobs", "justjoin", "pracuj", "nofluffjobs"],
+                index=0,
+                key="pw_dbg_source",
+            )
+            dbg_keyword = st.text_input("Keyword", value="React", key="pw_dbg_keyword")
+        with col_dbg2:
+            dbg_listing_url = st.text_input("Custom listing URL (optional)", value="", key="pw_dbg_listing_url")
+            dbg_headless = st.checkbox("Headless", value=False, key="pw_dbg_headless")
+        with col_dbg3:
+            dbg_max_scrolls = st.number_input("Max scrolls", min_value=1, max_value=30, value=5, key="pw_dbg_max_scrolls")
+            dbg_save_html = st.checkbox("Save HTML", value=False, key="pw_dbg_save_html")
+            dbg_save_screenshot = st.checkbox("Save screenshot", value=True, key="pw_dbg_save_screenshot")
+            dbg_save_trace = st.checkbox("Save trace", value=False, key="pw_dbg_save_trace")
+
+        if st.button("Debug selected source", key="pw_run_debug", type="secondary"):
+            from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+            from cv_sender.playwright_collection import debug_collect_source  # noqa: PLC0415
+
+            run_criteria = JobSearchCriteria.from_config(settings_pw.job_search)
+            run_criteria.keywords = [dbg_keyword] if dbg_keyword else run_criteria.keywords
+
+            with st.spinner(f"Running debugger for {dbg_source} …"):
+                dbg_report = debug_collect_source(
+                    source=dbg_source,
+                    criteria=run_criteria,
+                    listing_url=dbg_listing_url or None,
+                    headless=bool(dbg_headless),
+                    max_scrolls=int(dbg_max_scrolls),
+                    save_html=bool(dbg_save_html),
+                    save_screenshot=bool(dbg_save_screenshot),
+                    save_trace=bool(dbg_save_trace),
+                )
+            st.session_state["pw_debug_report"] = dbg_report
+            st.success(f"Debug run complete. Files saved to: {dbg_report.debug_dir}")
+
+        pw_dbg = st.session_state.get("pw_debug_report")
+        if pw_dbg is not None:
+            st.caption(
+                f"Debug run {pw_dbg.run_id[:8]}… · source={pw_dbg.source} · status={pw_dbg.status}"
+            )
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Raw links", pw_dbg.summary_counts.get("raw_links_found", 0))
+            m2.metric("Job offers", pw_dbg.summary_counts.get("job_offer", 0))
+            m3.metric("Listings", pw_dbg.summary_counts.get("listing", 0))
+            m4.metric("Needs review", pw_dbg.summary_counts.get("needs_review", 0))
+
+            st.write(f"Debug files path: {pw_dbg.debug_dir}")
+            st.info(f"Suggested next fix: {pw_dbg.suggested_next_fix}")
+
+            from pathlib import Path  # noqa: PLC0415
+            import json  # noqa: PLC0415
+            import pandas as pd  # noqa: PLC0415
+
+            dbg_dir = Path(pw_dbg.debug_dir)
+            screenshot_after = dbg_dir / "screenshot_after_scroll.png"
+            screenshot_initial = dbg_dir / "screenshot_initial.png"
+            if screenshot_after.exists():
+                st.image(str(screenshot_after), caption="After scroll")
+            elif screenshot_initial.exists():
+                st.image(str(screenshot_initial), caption="Initial screenshot")
+
+            classified_path = dbg_dir / "classified_links.json"
+            if classified_path.exists():
+                classified_rows = json.loads(classified_path.read_text(encoding="utf-8"))
+                if classified_rows:
+                    with st.expander(f"Classified links ({len(classified_rows)})", expanded=False):
+                        st.dataframe(pd.DataFrame(classified_rows), use_container_width=True)
+
+            cards_path = dbg_dir / "job_card_candidates.json"
+            if cards_path.exists():
+                card_rows = json.loads(cards_path.read_text(encoding="utf-8"))
+                if card_rows:
+                    with st.expander(f"Job card candidates ({len(card_rows)})", expanded=False):
+                        st.dataframe(pd.DataFrame(card_rows), use_container_width=True)
+
         # ---- Results panel ----
         pw_last = st.session_state.get("pw_last_result")
         if pw_last:
