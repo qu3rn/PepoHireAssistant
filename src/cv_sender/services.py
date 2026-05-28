@@ -13,11 +13,14 @@ from cv_sender.models import (
     ApplicationStatus,
     BatchImportItemResult,
     BatchImportResult,
+    DeepExtractionBatchResult,
+    DeepExtractionResult,
     EmailMatchStatus,
     FillResult,
     FillStatus,
     ImportStatus,
     Offer,
+    OfferCompletenessResult,
 )
 from cv_sender.scorer import score_offer
 from cv_sender.storage import (
@@ -255,6 +258,58 @@ def re_normalize_offers() -> tuple[int, int]:
         _save_offers(save_ordered)
 
     return len(offers), changed
+
+
+def is_offer_incomplete_by_id(offer_id: str) -> tuple[bool, OfferCompletenessResult | None, str]:
+    """Return completeness analysis for *offer_id*.
+
+    Returns ``(ok, result, message)``.
+    """
+
+    from cv_sender.deep_extraction import is_offer_incomplete  # noqa: PLC0415
+
+    offer = get_offer_by_id(offer_id)
+    if offer is None:
+        return False, None, f"Offer '{offer_id}' not found."
+    return True, is_offer_incomplete(offer), ""
+
+
+def deep_extract_offer_details_service(
+    offer_id: str,
+    force: bool = False,
+    use_playwright: bool = True,
+) -> DeepExtractionResult:
+    """Deep extract missing/weak offer fields for one offer."""
+
+    from cv_sender.deep_extraction import deep_extract_offer_details  # noqa: PLC0415
+
+    return deep_extract_offer_details(offer_id=offer_id, force=force, use_playwright=use_playwright)
+
+
+def deep_extract_offers_service(
+    offer_ids: list[str],
+    force: bool = False,
+    only_incomplete: bool = True,
+    max_offers: int | None = None,
+) -> DeepExtractionBatchResult:
+    """Deep extract missing/weak offer fields for multiple offers."""
+
+    from cv_sender.deep_extraction import deep_extract_offers  # noqa: PLC0415
+
+    return deep_extract_offers(
+        offer_ids=offer_ids,
+        force=force,
+        only_incomplete=only_incomplete,
+        max_offers=max_offers,
+    )
+
+
+def sync_all_queue_items_from_offers() -> int:
+    """Refresh all queue snapshots from the latest Offer records."""
+
+    from cv_sender.apply_queue import sync_all_queue_items_from_offers as _sync  # noqa: PLC0415
+
+    return _sync()
 
 
 _DEFAULT_MAX_URLS = 20

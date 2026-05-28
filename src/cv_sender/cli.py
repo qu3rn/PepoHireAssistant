@@ -97,6 +97,72 @@ def score_offers(
 
 
 # ---------------------------------------------------------------------------
+# deep-extract-offers
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="deep-extract-offers")
+def deep_extract_offers_cmd(
+    offer_id: list[str] = typer.Option(
+        [],
+        "--offer-id",
+        help="Offer id(s) to deep-extract; can be passed multiple times",
+    ),
+    all_offers: bool = typer.Option(False, "--all", help="Process all offers from storage"),
+    only_incomplete: bool = typer.Option(True, "--only-incomplete/--include-complete", help="Skip complete offers unless forced"),
+    force: bool = typer.Option(False, "--force", help="Allow stronger overwrite rules"),
+    max_offers: int | None = typer.Option(None, "--max", min=1, help="Maximum offers to process"),
+) -> None:
+    """Deep extract details (salary, stack, description, etc.) for stored offers."""
+
+    from cv_sender.services import deep_extract_offers_service
+    from cv_sender.storage import load_offers
+
+    selected_ids = list(offer_id)
+    if all_offers:
+        selected_ids = [o.id for o in load_offers()]
+
+    if not selected_ids:
+        rprint("[yellow]No offers selected.[/yellow] Use --offer-id or --all.")
+        raise typer.Exit(1)
+
+    result = deep_extract_offers_service(
+        selected_ids,
+        force=force,
+        only_incomplete=only_incomplete,
+        max_offers=max_offers,
+    )
+
+    rprint(
+        "[bold]Deep extraction summary:[/bold] "
+        f"updated={result.updated_count}, "
+        f"skipped_complete={result.skipped_complete_count}, "
+        f"blocked={result.blocked_count}, "
+        f"failed={result.failed_count}"
+    )
+
+    table = Table(title=f"Deep extraction results ({len(result.results)})")
+    table.add_column("Offer", style="dim", max_width=12)
+    table.add_column("Status")
+    table.add_column("Updated fields")
+    table.add_column("Missing remaining")
+    table.add_column("Extractor")
+    table.add_column("Error")
+
+    for item in result.results:
+        table.add_row(
+            item.offer_id[:8],
+            str(item.status),
+            ", ".join(item.fields_updated[:5]),
+            ", ".join(item.missing_fields_remaining[:4]),
+            item.extractor_used,
+            item.error[:60] if item.error else "",
+        )
+
+    rprint(table)
+
+
+# ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
 
