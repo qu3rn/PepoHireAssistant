@@ -2126,7 +2126,11 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
     # ------------------------------------------------------------------ #
     # Tab layout
     # ------------------------------------------------------------------ #
-    tab_search, tab_queue = st.tabs(["Search Criteria & Collection", "Rapid Apply Queue"])
+    tab_search, tab_playwright, tab_queue = st.tabs([
+        "Search Criteria & Collection",
+        "Playwright Browser Collector",
+        "Rapid Apply Queue",
+    ])
 
     # ================================================================== #
     # Tab 1 — Search criteria
@@ -2328,7 +2332,335 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                                     st.link_button("Open", d.url)
 
     # ================================================================== #
-    # Tab 2 — Rapid apply queue
+    # Tab 2 — Playwright Browser Collector
+    # ================================================================== #
+    with tab_playwright:
+        st.subheader("Playwright Browser Collector")
+        st.caption(
+            "Opens real browser windows, scrolls through job listing pages, and "
+            "collects offer URLs from public pages — then optionally imports them into your offers database."
+        )
+
+        from cv_sender.config import load_settings, save_settings  # noqa: PLC0415, F811
+
+        settings_pw = load_settings()
+        pw_cfg = settings_pw.playwright_collection
+
+        # ---- Source selection ----
+        st.markdown("**Sources**")
+        pw_source_cols = st.columns(5)
+        _pw_sources = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj", "linkedin"]
+        pw_src_enabled: dict[str, bool] = {}
+        for _i, _name in enumerate(_pw_sources):
+            with pw_source_cols[_i]:
+                pw_src_enabled[_name] = st.checkbox(
+                    _name,
+                    value=_name != "linkedin",
+                    key=f"pw_src_{_name}",
+                )
+
+        # ---- Config ----
+        col_pw1, col_pw2, col_pw3 = st.columns(3)
+        with col_pw1:
+            pw_headless = st.checkbox(
+                "Headless mode",
+                value=pw_cfg.headless,
+                help="Run browser without visible window (may be blocked by some sites)",
+            )
+            pw_max_scrolls = st.number_input(
+                "Max scrolls per page",
+                min_value=1,
+                max_value=30,
+                value=pw_cfg.max_scrolls_per_source,
+            )
+        with col_pw2:
+            pw_max_urls = st.number_input(
+                "Max URLs per source",
+                min_value=1,
+                max_value=200,
+                value=pw_cfg.max_urls_per_source,
+            )
+            pw_slow_mo = st.number_input(
+                "Slow-mo delay (ms)",
+                min_value=0,
+                max_value=2000,
+                value=pw_cfg.slow_mo_ms,
+                step=50,
+            )
+        with col_pw3:
+            pw_scroll_pause = st.number_input(
+                "Scroll pause (ms)",
+                min_value=200,
+                max_value=5000,
+                value=pw_cfg.scroll_pause_ms,
+                step=100,
+            )
+            pw_save_screenshots = st.checkbox(
+                "Save debug screenshots",
+                value=pw_cfg.save_debug_screenshots,
+            )
+
+        # ---- Custom listing URLs ----
+        with st.expander("Custom listing URLs (optional — overrides auto-generated URLs)"):
+            pw_custom_justjoin = st.text_area(
+                "JustJoin.it URLs (one per line)", height=70, key="pw_custom_justjoin"
+            )
+            pw_custom_rocketjobs = st.text_area(
+                "RocketJobs URLs (one per line)", height=70, key="pw_custom_rocketjobs"
+            )
+            pw_custom_nofluffjobs = st.text_area(
+                "NoFluffJobs URLs (one per line)", height=70, key="pw_custom_nofluffjobs"
+            )
+            pw_custom_pracuj = st.text_area(
+                "Pracuj.pl URLs (one per line)", height=70, key="pw_custom_pracuj"
+            )
+
+        def _pw_parse_urls(text: str) -> list[str]:
+            return [u.strip() for u in text.splitlines() if u.strip().startswith("http")]
+
+        pw_custom_map: dict[str, list[str]] = {}
+        for _src_name, _custom_text in [
+            ("justjoin", pw_custom_justjoin),
+            ("rocketjobs", pw_custom_rocketjobs),
+            ("nofluffjobs", pw_custom_nofluffjobs),
+            ("pracuj", pw_custom_pracuj),
+        ]:
+            parsed_urls = _pw_parse_urls(_custom_text)
+            if parsed_urls:
+                pw_custom_map[_src_name] = parsed_urls
+
+        # ---- Actions ----
+        pw_collect_only = st.checkbox(
+            "Collect URLs only",
+            value=False,
+            key="pw_collect_urls_only",
+            help="Collect listing-page URLs without importing them yet.",
+        )
+        pw_do_import = st.checkbox(
+            "Import after collection",
+            value=True,
+            key="pw_do_import",
+            disabled=pw_collect_only,
+        )
+        pw_do_score = st.checkbox(
+            "Score after import",
+            value=True,
+            key="pw_do_score",
+            disabled=pw_collect_only or not pw_do_import,
+        )
+        pw_add_to_queue = st.checkbox(
+            "Add imported offers to queue",
+            value=False,
+            key="pw_add_to_queue",
+            disabled=pw_collect_only or not pw_do_import,
+        )
+
+        col_pw_save, col_pw_collect_only, col_pw_import_now, col_pw_collect_import = st.columns(4)
+
+        with col_pw_save:
+            if st.button("Save Playwright settings"):
+                from cv_sender.config import PlaywrightCollectionConfig  # noqa: PLC0415
+
+                new_pw_cfg = PlaywrightCollectionConfig(
+                    enabled=True,
+                    headless=pw_headless,
+                    slow_mo_ms=int(pw_slow_mo),
+                    max_scrolls_per_source=int(pw_max_scrolls),
+                    scroll_pause_ms=int(pw_scroll_pause),
+                    max_urls_per_source=int(pw_max_urls),
+                    save_debug_screenshots=pw_save_screenshots,
+                    page_timeout_ms=pw_cfg.page_timeout_ms,
+                )
+                new_settings_pw = settings_pw.model_copy(update={"playwright_collection": new_pw_cfg})
+                save_settings(new_settings_pw)
+                st.success("Playwright settings saved.")
+
+        with col_pw_collect_only:
+            if st.button("Collect URLs with Playwright", key="pw_collect_only_button"):
+                from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415, F811
+                from cv_sender.config import PlaywrightCollectionConfig  # noqa: PLC0415
+                from cv_sender.playwright_collection import collect_job_urls  # noqa: PLC0415
+
+                run_criteria = JobSearchCriteria.from_config(settings_pw.job_search)
+                run_cfg = PlaywrightCollectionConfig(
+                    enabled=True,
+                    headless=pw_headless,
+                    slow_mo_ms=int(pw_slow_mo),
+                    max_scrolls_per_source=int(pw_max_scrolls),
+                    scroll_pause_ms=int(pw_scroll_pause),
+                    max_urls_per_source=int(pw_max_urls),
+                    save_debug_screenshots=pw_save_screenshots,
+                    page_timeout_ms=pw_cfg.page_timeout_ms,
+                )
+                active_pw_sources = [n for n, v in pw_src_enabled.items() if v]
+
+                with st.spinner(f"Playwright collecting URLs from: {', '.join(active_pw_sources)} …"):
+                    only_results = collect_job_urls(
+                        criteria=run_criteria,
+                        sources=active_pw_sources,
+                        cfg=run_cfg,
+                        custom_listing_urls=pw_custom_map or None,
+                    )
+
+                collected_urls_only = [cu.url for r in only_results for cu in r.collected_urls]
+                st.session_state["pw_last_result"] = {
+                    "collection_results": only_results,
+                    "total_collected": len(collected_urls_only),
+                    "total_imported": 0,
+                    "total_duplicates": sum(r.duplicate_count for r in only_results),
+                    "total_failed": 0,
+                    "import_result": None,
+                    "errors": [e for r in only_results for e in r.errors],
+                }
+                st.success(f"Collected {len(collected_urls_only)} URLs (not yet imported).")
+
+        with col_pw_import_now:
+            if st.button("Import collected URLs", key="pw_import_now_top"):
+                from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
+                from cv_sender.services import import_offers_from_urls  # noqa: PLC0415
+
+                pw_last_result = st.session_state.get("pw_last_result") or {}
+                prior_results = pw_last_result.get("collection_results", [])
+                pending_urls = [cu.url for r in prior_results for cu in r.collected_urls]
+                if not pending_urls:
+                    st.warning("No collected URLs available yet. Run Playwright collection first.")
+                else:
+                    with st.spinner("Importing collected URLs …"):
+                        import_res = import_offers_from_urls(
+                            urls=pending_urls,
+                            auto_score=pw_do_score,
+                            max_urls=max(len(pending_urls), 50),
+                        )
+                        if pw_add_to_queue and import_res.imported_count:
+                            build_apply_queue_from_offers()
+                            for campaign in get_active_campaigns():
+                                build_campaign_queue(campaign.id)
+                    pw_last_result["total_imported"] = import_res.imported_count
+                    pw_last_result["total_duplicates"] = import_res.duplicate_count + pw_last_result.get("total_duplicates", 0)
+                    pw_last_result["total_failed"] = import_res.failed_count
+                    pw_last_result["import_result"] = import_res
+                    st.session_state["pw_last_result"] = pw_last_result
+                    st.success(
+                        f"Imported: {import_res.imported_count} · Duplicates: {import_res.duplicate_count} · Failed: {import_res.failed_count}"
+                    )
+
+        with col_pw_collect_import:
+            if st.button("Collect + Import + Score", type="primary", key="pw_collect"):
+                from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
+                from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415, F811
+                from cv_sender.config import PlaywrightCollectionConfig  # noqa: PLC0415
+                from cv_sender.playwright_collection import collect_and_import  # noqa: PLC0415
+
+                run_criteria = JobSearchCriteria.from_config(settings_pw.job_search)
+                run_cfg = PlaywrightCollectionConfig(
+                    enabled=True,
+                    headless=pw_headless,
+                    slow_mo_ms=int(pw_slow_mo),
+                    max_scrolls_per_source=int(pw_max_scrolls),
+                    scroll_pause_ms=int(pw_scroll_pause),
+                    max_urls_per_source=int(pw_max_urls),
+                    save_debug_screenshots=pw_save_screenshots,
+                    page_timeout_ms=pw_cfg.page_timeout_ms,
+                )
+                active_pw_sources = [n for n, v in pw_src_enabled.items() if v]
+
+                with st.spinner(f"Playwright collecting from: {', '.join(active_pw_sources)} …"):
+                    pw_result = collect_and_import(
+                        criteria=run_criteria,
+                        sources=active_pw_sources,
+                        cfg=run_cfg,
+                        auto_score=pw_do_score if pw_do_import else False,
+                        custom_listing_urls=pw_custom_map or None,
+                    )
+                    if pw_add_to_queue and pw_result["total_imported"]:
+                        build_apply_queue_from_offers()
+                        for campaign in get_active_campaigns():
+                            build_campaign_queue(campaign.id)
+
+                st.session_state["pw_last_result"] = pw_result
+
+                st.success(
+                    f"Done! Collected: **{pw_result['total_collected']}** · "
+                    f"Imported: **{pw_result['total_imported']}** · "
+                    f"Duplicates: {pw_result['total_duplicates']} · "
+                    f"Failed: {pw_result['total_failed']}"
+                )
+
+        # ---- Results panel ----
+        pw_last = st.session_state.get("pw_last_result")
+        if pw_last:
+            st.subheader("Last Playwright collection")
+            col_res1, col_res2, col_res3, col_res4 = st.columns(4)
+            col_res1.metric("Collected URLs", pw_last["total_collected"])
+            col_res2.metric("Imported", pw_last["total_imported"])
+            col_res3.metric("Duplicates", pw_last["total_duplicates"])
+            col_res4.metric("Failed", pw_last["total_failed"])
+
+            if pw_last.get("errors"):
+                with st.expander(f"Errors ({len(pw_last['errors'])})", expanded=True):
+                    for err in pw_last["errors"]:
+                        st.error(err)
+
+            col_results = pw_last.get("collection_results", [])
+            if col_results:
+                import pandas as pd  # noqa: PLC0415
+
+                rows = [
+                    {
+                        "Source": r.source,
+                        "Listing URLs": len(r.listing_urls),
+                        "Raw links": r.raw_link_count,
+                        "Job URLs": r.job_url_count,
+                        "Duplicates": r.duplicate_count,
+                        "Errors": len(r.errors),
+                        "Warnings": len(r.warnings),
+                    }
+                    for r in col_results
+                ]
+                st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+                for r in col_results:
+                    if r.warnings:
+                        with st.expander(f"{r.source} warnings"):
+                            for w in r.warnings:
+                                st.warning(w)
+
+            # Show collected URLs if collect-only mode
+            all_collected = [
+                cu.url for r in col_results for cu in r.collected_urls
+            ]
+            if all_collected and pw_last["total_imported"] == 0:
+                with st.expander(f"Collected URLs ({len(all_collected)} — not yet imported)"):
+                    urls_text = "\n".join(all_collected)
+                    st.text_area("URLs", value=urls_text, height=200, key="pw_urls_preview")
+                    if st.button("Import these URLs now", key="pw_import_now"):
+                        from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                        from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
+                        from cv_sender.services import import_offers_from_urls  # noqa: PLC0415
+
+                        with st.spinner("Importing …"):
+                            import_res = import_offers_from_urls(
+                                urls=all_collected,
+                                auto_score=pw_do_score,
+                                max_urls=max(len(all_collected), 50),
+                            )
+                            if pw_add_to_queue and import_res.imported_count:
+                                build_apply_queue_from_offers()
+                                for campaign in get_active_campaigns():
+                                    build_campaign_queue(campaign.id)
+                        st.success(
+                            f"Imported: {import_res.imported_count} · "
+                            f"Duplicates: {import_res.duplicate_count} · "
+                            f"Failed: {import_res.failed_count}"
+                        )
+                        pw_last["total_imported"] = import_res.imported_count
+                        pw_last["import_result"] = import_res
+                        st.rerun()
+
+    # ================================================================== #
+    # Tab 3 — Rapid apply queue
     # ================================================================== #
     with tab_queue:
         st.subheader("Rapid Apply Queue")

@@ -511,6 +511,179 @@ def debug_collectors(
 
 
 # ---------------------------------------------------------------------------
+# collect-playwright
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="collect-playwright")
+def collect_playwright(
+    sources: list[str] = typer.Option(
+        [],
+        "--source",
+        "-s",
+        help="Sources to collect from. Repeatable. Defaults to: justjoin rocketjobs nofluffjobs pracuj.",
+    ),
+    listing_url: list[str] = typer.Option(
+        [],
+        "--url",
+        "-u",
+        help="Custom listing URL(s). Applies to the FIRST --source value when multiple sources given.",
+    ),
+    emergency: bool = typer.Option(False, "--emergency", help="Use emergency React/Frontend criteria."),
+    headless: bool = typer.Option(False, "--headless", help="Run browser in headless mode."),
+    max_urls: int = typer.Option(0, "--max-urls", help="Max URLs per source (0 = use config value)."),
+    no_import: bool = typer.Option(False, "--no-import", help="Collect URLs but do not import."),
+    no_score: bool = typer.Option(False, "--no-score", help="Skip LLM scoring after import."),
+) -> None:
+    """Collect job-offer URLs using a real browser (Playwright) and optionally import them."""
+    from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+    from cv_sender.config import PlaywrightCollectionConfig, load_settings  # noqa: PLC0415
+    from cv_sender.playwright_collection import collect_and_import, collect_job_urls  # noqa: PLC0415
+
+    settings = load_settings()
+    pw_cfg = settings.playwright_collection
+
+    if emergency:
+        criteria = JobSearchCriteria.emergency_react()
+        rprint("[bold yellow]Emergency React/Frontend mode active.[/bold yellow]")
+    else:
+        criteria = JobSearchCriteria.from_config(settings.job_search)
+
+    active_sources = list(sources) if sources else ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
+
+    run_cfg = PlaywrightCollectionConfig(
+        enabled=True,
+        headless=headless or pw_cfg.headless,
+        slow_mo_ms=pw_cfg.slow_mo_ms,
+        max_scrolls_per_source=pw_cfg.max_scrolls_per_source,
+        scroll_pause_ms=pw_cfg.scroll_pause_ms,
+        max_urls_per_source=max_urls if max_urls > 0 else pw_cfg.max_urls_per_source,
+        save_debug_screenshots=pw_cfg.save_debug_screenshots,
+        page_timeout_ms=pw_cfg.page_timeout_ms,
+    )
+
+    # Map custom listing URLs to first source when provided
+    custom_map: dict[str, list[str]] = {}
+    if listing_url and active_sources:
+        custom_map[active_sources[0]] = list(listing_url)
+
+    rprint(f"Playwright collecting from: {', '.join(active_sources)}")
+    rprint(f"headless={run_cfg.headless}  max_urls={run_cfg.max_urls_per_source}  import={not no_import}")
+
+    if no_import:
+        results = collect_job_urls(criteria, active_sources, run_cfg, custom_map or None)
+        all_urls = [cu.url for r in results for cu in r.collected_urls]
+        rprint(f"\n[bold green]Collected {len(all_urls)} URLs (not imported).[/bold green]")
+        for u in all_urls[:20]:
+            rprint(f"  {u}")
+        if len(all_urls) > 20:
+            rprint(f"  … and {len(all_urls) - 20} more")
+    else:
+        summary = collect_and_import(
+            criteria, active_sources, run_cfg,
+            auto_score=not no_score,
+            custom_listing_urls=custom_map or None,
+        )
+        rprint(
+            f"\n[bold green]Done.[/bold green] "
+            f"Collected: {summary['total_collected']} · "
+            f"Imported: {summary['total_imported']} · "
+            f"Duplicates: {summary['total_duplicates']} · "
+            f"Failed: {summary['total_failed']}"
+        )
+        for err in summary.get("errors", []):
+            rprint(f"  [red]Error:[/red] {err}")
+
+        table = Table(title="Per-source results")
+        table.add_column("Source")
+        table.add_column("Listing URLs", justify="right")
+        table.add_column("Raw links", justify="right")
+        table.add_column("Job URLs", justify="right")
+        table.add_column("Duplicates", justify="right")
+        table.add_column("Errors", justify="right")
+        for r in summary.get("collection_results", []):
+            table.add_row(
+                r.source,
+                str(len(r.listing_urls)),
+                str(r.raw_link_count),
+                str(r.job_url_count),
+                str(r.duplicate_count),
+                str(len(r.errors)),
+            )
+        rprint(table)
+
+
+# ---------------------------------------------------------------------------
+# debug-playwright-collectors
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="debug-playwright-collectors")
+def debug_playwright_collectors(
+    sources: list[str] = typer.Option(
+        [],
+        "--source",
+        "-s",
+        help="Sources to test. Defaults to all four Playwright sources.",
+    ),
+    headless: bool = typer.Option(False, "--headless", help="Run browser in headless mode."),
+) -> None:
+    """Smoke-test each Playwright collector.  Opens browser, collects a few URLs, does NOT import."""
+    from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+    from cv_sender.config import PlaywrightCollectionConfig, load_settings  # noqa: PLC0415
+    from cv_sender.playwright_collection import collect_job_urls  # noqa: PLC0415
+
+    settings = load_settings()
+    pw_cfg = settings.playwright_collection
+
+    broad = JobSearchCriteria(
+        keywords=["React", "Frontend"],
+        technologies=["React", "TypeScript"],
+        locations=[],
+        seniority=[],
+        contract_types=[],
+        min_salary_b2b=0,
+        require_salary=False,
+        max_offers_per_source=5,
+        max_total_offers=50,
+        exclude_keywords=[],
+        request_delay_seconds=0.5,
+    )
+
+    run_cfg = PlaywrightCollectionConfig(
+        enabled=True,
+        headless=headless or pw_cfg.headless,
+        slow_mo_ms=pw_cfg.slow_mo_ms,
+        max_scrolls_per_source=2,
+        scroll_pause_ms=pw_cfg.scroll_pause_ms,
+        max_urls_per_source=5,
+        save_debug_screenshots=True,
+        page_timeout_ms=pw_cfg.page_timeout_ms,
+    )
+
+    active = list(sources) if sources else ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
+    rprint(f"\n[bold]debug-playwright-collectors[/bold]  sources={active}  headless={run_cfg.headless}")
+    results = collect_job_urls(broad, active, run_cfg)
+
+    for r in results:
+        status = "[green]✓[/green]" if r.job_url_count > 0 else "[yellow]⚠[/yellow]"
+        rprint(f"\n{status} [bold cyan]{r.source}[/bold cyan]")
+        rprint(f"  Raw links   : {r.raw_link_count}")
+        rprint(f"  Job URLs    : {r.job_url_count}")
+        rprint(f"  Duplicates  : {r.duplicate_count}")
+        for w in r.warnings:
+            rprint(f"  [yellow]⚠ {w}[/yellow]")
+        for e in r.errors:
+            rprint(f"  [red]✗ {e}[/red]")
+        for cu in r.collected_urls[:5]:
+            rprint(f"    • {cu.url}")
+        if r.debug_artifacts:
+            rprint(f"  Debug artifacts saved: {', '.join(r.debug_artifacts[:3])}")
+
+    rprint("\n[dim]Note: debug-playwright-collectors does NOT import any offers.[/dim]")
+
+
+# ---------------------------------------------------------------------------
 # build-queue
 # ---------------------------------------------------------------------------
 

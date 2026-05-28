@@ -199,3 +199,16 @@ job_search:
     # LinkedIn requires login — use the Bookmarklet or manual URL import instead
     linkedin:
       enabled: false
+
+# Playwright browser-based collection from public listing/search pages
+playwright_collection:
+  enabled: true
+  headless: false
+  slow_mo_ms: 150
+  max_scrolls_per_source: 8
+  scroll_pause_ms: 1200
+  max_urls_per_source: 50
+  page_timeout_ms: 30000
+  save_debug_screenshots: true
+  save_debug_html_preview: false
+  user_agent: null
