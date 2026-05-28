@@ -437,32 +437,159 @@ def _page_offers() -> None:
         st.info("No offers yet. Use the forms above to add one.")
         return
 
-    # --- Filters ---
-    with st.expander("Filters", expanded=True):
+    from cv_sender.listing import (  # noqa: PLC0415
+        ListQuery,
+        build_list_result,
+        init_list_state,
+        render_pagination_controls,
+        render_search_box,
+    )
+
+    _PFX = "offers"
+    init_list_state(_PFX, {"page_size": 25, "sort_by": "created_at", "sort_dir": "desc"})
+
+    # --- Search + Filters + Sort controls ---
+    with st.expander("🔍 Search, Filter & Sort", expanded=True):
+        sc1, sc2 = st.columns([3, 1])
+        with sc1:
+            search_text = render_search_box(_PFX, label="Search offers", placeholder="title, company, location…")
+        with sc2:
+            page_size: int = st.selectbox(
+                "Per page",
+                [10, 25, 50, 100],
+                index=[10, 25, 50, 100].index(st.session_state.get(f"{_PFX}_page_size", 25)),
+                key=f"{_PFX}_page_size",
+            )
+
         fc1, fc2, fc3, fc4 = st.columns(4)
         decision_opts = ["(all)"] + [d.value for d in Decision]
-        sel_decision = fc1.selectbox("Decision", decision_opts)
+        sel_decision: str = fc1.selectbox(
+            "Decision", decision_opts, key=f"{_PFX}_filter_decision"
+        )
         sources = sorted({o.source for o in offers if o.source})
-        source_opts = ["(all)"] + sources
-        sel_source = fc2.selectbox("Source", source_opts)
-        sel_min_score = fc3.number_input("Min score", min_value=0, max_value=100, value=0, step=5)
+        sel_source: str = fc2.selectbox(
+            "Source", ["(all)"] + sources, key=f"{_PFX}_filter_source"
+        )
         locations = sorted({o.location for o in offers if o.location})
-        location_opts = ["(all)"] + locations
-        sel_location = fc4.selectbox("Location", location_opts)
+        sel_location: str = fc3.selectbox(
+            "Location", ["(all)"] + locations, key=f"{_PFX}_filter_location"
+        )
+        sel_only_not_applied: bool = fc4.checkbox(
+            "Not yet applied", key=f"{_PFX}_filter_not_applied"
+        )
 
-    filtered = offers
-    if sel_decision != "(all)":
-        filtered = [o for o in filtered if str(o.decision) == sel_decision]
-    if sel_source != "(all)":
-        filtered = [o for o in filtered if o.source == sel_source]
-    if sel_min_score > 0:
-        filtered = [o for o in filtered if (o.score or 0) >= sel_min_score]
-    if sel_location != "(all)":
-        filtered = [o for o in filtered if o.location == sel_location]
+        sf1, sf2, sf3 = st.columns(3)
+        sel_min_score: int = sf1.number_input(
+            "Min score", min_value=0, max_value=100, value=0, step=5, key=f"{_PFX}_filter_min_score"
+        )
+        sel_max_score: int = sf2.number_input(
+            "Max score", min_value=0, max_value=100, value=100, step=5, key=f"{_PFX}_filter_max_score"
+        )
+        _sort_opts = ["created_at", "score", "priority_score", "company", "title", "source"]
+        sort_by: str = sf3.selectbox(
+            "Sort by", _sort_opts,
+            index=_sort_opts.index(st.session_state.get(f"{_PFX}_sort_by") or "created_at")
+            if (st.session_state.get(f"{_PFX}_sort_by") or "created_at") in _sort_opts else 0,
+            key=f"{_PFX}_sort_by",
+        )
+        sort_dir: str = sf1.selectbox(
+            "Direction", ["Descending", "Ascending"], key=f"{_PFX}_sort_dir_label"
+        )
+        _sort_dir = "asc" if sort_dir == "Ascending" else "desc"
+        st.session_state[f"{_PFX}_sort_dir"] = _sort_dir
 
-    st.caption(f"Showing {len(filtered)} of {len(offers)} offers")
+    # Reset to page 1 when any filter changes
+    _watched = (
+        search_text,
+        sel_decision,
+        sel_source,
+        sel_location,
+        sel_only_not_applied,
+        sel_min_score,
+        sel_max_score,
+        sort_by,
+        _sort_dir,
+        page_size,
+    )
+    _sentinel_key = f"{_PFX}_filter_sentinel"
+    if st.session_state.get(_sentinel_key) != _watched:
+        st.session_state[f"{_PFX}_page"] = 1
+    st.session_state[_sentinel_key] = _watched
 
-    for offer in filtered:
+    def _offer_filter_fn(o) -> bool:  # noqa: ANN001
+        if sel_decision != "(all)" and str(o.decision or "") != sel_decision:
+            return False
+        if sel_source != "(all)" and (o.source or "") != sel_source:
+            return False
+        if sel_location != "(all)" and (o.location or "") != sel_location:
+            return False
+        if sel_min_score > 0 and (o.score or 0) < sel_min_score:
+            return False
+        if sel_max_score < 100 and (o.score or 0) > sel_max_score:
+            return False
+        if sel_only_not_applied and str(o.decision or "") in ("skip", "maybe"):
+            return False
+        return True
+
+    query = ListQuery(
+        page=st.session_state.get(f"{_PFX}_page", 1),
+        page_size=page_size,
+        search_text=search_text,
+        sort_by=sort_by,
+        sort_dir=_sort_dir,
+    )
+    result = build_list_result(
+        offers,
+        query,
+        search_fields=["title", "company", "location", "source", "technologies"],
+        filter_fn=_offer_filter_fn,
+    )
+
+    # Bulk select / delete on current page
+    with st.expander("🗑️ Bulk actions (current page)", expanded=False):
+        st.caption(
+            f"Select offers on the current page ({len(result.items)}) to delete them. "
+            "Use **'Select all matching'** to target all filtered results."
+        )
+        _sel_all_matching = st.checkbox(
+            f"Select all {result.total_count} matching offers",
+            key=f"{_PFX}_sel_all_matching",
+        )
+        if _sel_all_matching:
+            st.warning(
+                f"⚠️ This will delete **all {result.total_count} filtered offers**. "
+                "Confirm with the button below."
+            )
+            if st.button(
+                f"🗑️ Delete all {result.total_count} matching offers",
+                type="primary",
+                key=f"{_PFX}_del_all_matching",
+            ):
+                _all_filtered = build_list_result(
+                    offers,
+                    ListQuery(page=1, page_size=len(offers), sort_by=sort_by, sort_dir=_sort_dir),
+                    search_fields=["title", "company", "location", "source", "technologies"],
+                    filter_fn=_offer_filter_fn,
+                )
+                _deleted = 0
+                for _o in _all_filtered.items:
+                    from cv_sender.storage import delete_offer  # noqa: PLC0415
+                    try:
+                        delete_offer(_o.id)
+                        _deleted += 1
+                    except Exception:  # noqa: BLE001
+                        pass
+                st.success(f"Deleted {_deleted} offers.")
+                st.session_state[f"{_PFX}_sel_all_matching"] = False
+                st.rerun()
+
+    # Pagination header
+    new_page = render_pagination_controls(_PFX, result)
+    if new_page != st.session_state.get(f"{_PFX}_page"):
+        st.session_state[f"{_PFX}_page"] = new_page
+        st.rerun()
+
+    for offer in result.items:
         with st.expander(f"**{offer.title}** — {offer.company}  |  score: {offer.score or '—'}  |  {offer.decision or '—'}"):
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"**Source:** {offer.source or '—'}")
@@ -591,22 +718,69 @@ def _page_applications() -> None:
 
     import pandas as pd
 
+    from cv_sender.follow_up import is_follow_up_due  # noqa: PLC0415
+    from cv_sender.listing import (  # noqa: PLC0415
+        ListQuery,
+        build_list_result,
+        init_list_state,
+        render_pagination_controls,
+    )
+
+    _PFX = "applications"
+    init_list_state(_PFX, {"page_size": 25, "sort_by": "updated_at", "sort_dir": "desc"})
+
+    now = datetime.now(UTC)
     status_values = [s.value for s in ApplicationStatus]
 
     # ── Filters ──────────────────────────────────────────────────────────────
-    with st.expander("🔍 Filters", expanded=False):
+    with st.expander("🔍 Search, Filter & Sort", expanded=False):
+        sc1, sc2 = st.columns([3, 1])
+        with sc1:
+            app_search: str = st.text_input(
+                "Search", placeholder="title, company, source…", key=f"{_PFX}_search"
+            )
+        with sc2:
+            app_page_size: int = st.selectbox(
+                "Per page",
+                [10, 25, 50, 100],
+                index=[10, 25, 50, 100].index(st.session_state.get(f"{_PFX}_page_size", 25)),
+                key=f"{_PFX}_page_size",
+            )
+
         fc1, fc2, fc3 = st.columns(3)
-        filter_status = fc1.selectbox(
-            "Status", ["(all)"] + status_values, key="app_filter_status"
+        filter_status: str = fc1.selectbox(
+            "Status", ["(all)"] + status_values, key=f"{_PFX}_filter_status"
         )
-        filter_due_only = fc2.checkbox("Due follow-ups only", key="app_filter_due")
-        filter_company = fc3.text_input("Company contains", key="app_filter_company")
+        app_sources = sorted({a.source for a in all_apps if a.source})
+        filter_source: str = fc2.selectbox(
+            "Source", ["(all)"] + app_sources, key=f"{_PFX}_filter_source"
+        )
+        filter_company: str = fc3.text_input("Company contains", key=f"{_PFX}_filter_company")
 
-    now = datetime.now(UTC)
-    from cv_sender.follow_up import is_follow_up_due  # noqa: PLC0415
+        fc4, fc5 = st.columns(2)
+        filter_due_only: bool = fc4.checkbox(
+            "Due follow-ups only", key=f"{_PFX}_filter_due"
+        )
 
-    def _matches(a: Application) -> bool:
+        _sort_opts_app = ["updated_at", "sent_at", "follow_up_due_at", "company", "status"]
+        filter_sort_by: str = fc5.selectbox(
+            "Sort by", _sort_opts_app,
+            index=_sort_opts_app.index(st.session_state.get(f"{_PFX}_sort_by") or "updated_at")
+            if (st.session_state.get(f"{_PFX}_sort_by") or "updated_at") in _sort_opts_app else 0,
+            key=f"{_PFX}_sort_by",
+        )
+
+    # Reset page when filters change
+    _watched_app = (app_search, filter_status, filter_source, filter_company, filter_due_only, filter_sort_by, app_page_size)
+    _sentinel_app = f"{_PFX}_filter_sentinel"
+    if st.session_state.get(_sentinel_app) != _watched_app:
+        st.session_state[f"{_PFX}_page"] = 1
+    st.session_state[_sentinel_app] = _watched_app
+
+    def _app_filter_fn(a: Application) -> bool:
         if filter_status != "(all)" and a.status.value != filter_status:
+            return False
+        if filter_source != "(all)" and (a.source or "") != filter_source:
             return False
         if filter_due_only and not is_follow_up_due(a, now):
             return False
@@ -614,10 +788,26 @@ def _page_applications() -> None:
             return False
         return True
 
-    apps = [a for a in all_apps if _matches(a)]
-    st.subheader(f"Showing {len(apps)} of {len(all_apps)} applications")
+    query = ListQuery(
+        page=st.session_state.get(f"{_PFX}_page", 1),
+        page_size=app_page_size,
+        search_text=app_search or None,
+        sort_by=filter_sort_by,
+        sort_dir="desc",
+    )
+    result = build_list_result(
+        all_apps,
+        query,
+        search_fields=["title", "company", "source", "location"],
+        filter_fn=_app_filter_fn,
+    )
 
-    for app in sorted(apps, key=lambda a: a.updated_at, reverse=True):
+    new_page = render_pagination_controls(_PFX, result)
+    if new_page != st.session_state.get(f"{_PFX}_page"):
+        st.session_state[f"{_PFX}_page"] = new_page
+        st.rerun()
+
+    for app in result.items:
         due_badge = " ⏰" if is_follow_up_due(app, now) else ""
         label = f"**{app.title}** — {app.company}  |  {app.status}{due_badge}  |  {app.created_at.date()}"
         with st.expander(label):
@@ -1240,17 +1430,44 @@ def _page_gmail() -> None:
     if not all_matches:
         st.info("No email matches yet. Run a scan above.")
     else:
-        status_filter = st.selectbox(
+        from cv_sender.listing import ListQuery as _LQg, build_list_result as _blrg, init_list_state as _ilsg, render_pagination_controls as _rpcg  # noqa: PLC0415, E501
+        _GM_PFX = "gmail_matches"
+        _ilsg(_GM_PFX, {"page_size": 25, "sort_by": "received_at", "sort_dir": "desc"})
+
+        _gm_c1, _gm_c2 = st.columns(2)
+        status_filter: str = _gm_c1.selectbox(
             "Filter by match status",
             ["All", "pending", "applied", "ignored"],
-            key="gmail_status_filter",
+            key=f"{_GM_PFX}_status_filter",
         )
-        shown = all_matches if status_filter == "All" else [m for m in all_matches if m.status == status_filter]
-        shown = sorted(shown, key=lambda m: m.received_at, reverse=True)
+        _gm_page_size: int = _gm_c2.selectbox(
+            "Per page", [10, 25, 50, 100],
+            index=[10, 25, 50, 100].index(st.session_state.get(f"{_GM_PFX}_page_size", 25)),
+            key=f"{_GM_PFX}_page_size",
+        )
 
-        st.caption(f"Showing {len(shown)} of {len(all_matches)} matches")
+        _gm_watched = (status_filter, _gm_page_size)
+        if st.session_state.get(f"{_GM_PFX}_sentinel") != _gm_watched:
+            st.session_state[f"{_GM_PFX}_page"] = 1
+        st.session_state[f"{_GM_PFX}_sentinel"] = _gm_watched
 
-        for match in shown:
+        def _gm_filter_fn(m) -> bool:  # noqa: ANN001
+            return status_filter == "All" or m.status == status_filter
+
+        _gm_q = _LQg(
+            page=st.session_state.get(f"{_GM_PFX}_page", 1),
+            page_size=_gm_page_size,
+            sort_by="received_at",
+            sort_dir="desc",
+        )
+        _gm_result = _blrg(all_matches, _gm_q, filter_fn=_gm_filter_fn)
+
+        _gm_new_page = _rpcg(_GM_PFX, _gm_result)
+        if _gm_new_page != st.session_state.get(f"{_GM_PFX}_page"):
+            st.session_state[f"{_GM_PFX}_page"] = _gm_new_page
+            st.rerun()
+
+        for match in _gm_result.items:
             label = (
                 f"**{match.subject or '(no subject)'}**  — {match.from_email}"
                 f"  |  {match.classification}  |  {match.received_at.strftime('%Y-%m-%d')}"
@@ -2354,7 +2571,43 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
             rejected = [d for d in report.decisions if d.decision in ("rejected", "needs_review", "failed")]
             if rejected:
                 with st.expander(f"Rejected / skipped offers ({len(rejected)})", expanded=False):
-                    for d in rejected:
+                    from cv_sender.listing import ListQuery as _LQ, build_list_result as _blr, init_list_state as _ils, render_pagination_controls as _rpc  # noqa: PLC0415, E501
+                    _REJ_PFX = "coll_rejected"
+                    _ils(_REJ_PFX, {"page_size": 25, "sort_by": "source", "sort_dir": "asc"})
+                    _rej_sources = sorted({d.source for d in rejected if d.source})
+                    _rej_c1, _rej_c2 = st.columns(2)
+                    _rej_filter_src: str = _rej_c1.selectbox(
+                        "Source", ["(all)"] + _rej_sources, key=f"{_REJ_PFX}_filter_src"
+                    )
+                    _rej_filter_dec: str = _rej_c2.selectbox(
+                        "Decision", ["(all)", "rejected", "needs_review", "failed"],
+                        key=f"{_REJ_PFX}_filter_dec"
+                    )
+                    _rej_watched = (_rej_filter_src, _rej_filter_dec)
+                    if st.session_state.get(f"{_REJ_PFX}_sentinel") != _rej_watched:
+                        st.session_state[f"{_REJ_PFX}_page"] = 1
+                    st.session_state[f"{_REJ_PFX}_sentinel"] = _rej_watched
+
+                    def _rej_fn(d) -> bool:  # noqa: ANN001
+                        if _rej_filter_src != "(all)" and (d.source or "") != _rej_filter_src:
+                            return False
+                        if _rej_filter_dec != "(all)" and d.decision != _rej_filter_dec:
+                            return False
+                        return True
+
+                    _rej_q = _LQ(
+                        page=st.session_state.get(f"{_REJ_PFX}_page", 1),
+                        page_size=25,
+                        sort_by="source",
+                        sort_dir="asc",
+                    )
+                    _rej_result = _blr(rejected, _rej_q, filter_fn=_rej_fn)
+                    _rej_new_page = _rpc(_REJ_PFX, _rej_result)
+                    if _rej_new_page != st.session_state.get(f"{_REJ_PFX}_page"):
+                        st.session_state[f"{_REJ_PFX}_page"] = _rej_new_page
+                        st.rerun()
+
+                    for d in _rej_result.items:
                         with st.container(border=True):
                             c1, c2, c3 = st.columns([3, 2, 1])
                             with c1:
@@ -2953,14 +3206,60 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
 
         import pandas as pd  # noqa: PLC0415
 
+        from cv_sender.listing import ListQuery, build_list_result, init_list_state, render_pagination_controls  # noqa: PLC0415
+
         active_statuses = {ApplyQueueItemStatus.QUEUED, ApplyQueueItemStatus.IN_PROGRESS}
         active_items = [q for q in queue if q.status in active_statuses]
 
         if not active_items:
             st.info("No active items in the queue. All done!")
         else:
-            st.markdown(f"**{len(active_items)} active** items in queue (sorted by priority)")
-            for item in sorted(active_items, key=lambda x: x.priority_score, reverse=True):
+            _CQ_PFX = "jobsearch_queue"
+            init_list_state(_CQ_PFX, {"page_size": 25, "sort_by": "priority_score", "sort_dir": "desc"})
+
+            # Filter controls
+            _cq_sources = sorted({i.source for i in active_items if i.source})
+            cq_col1, cq_col2, cq_col3 = st.columns(3)
+            _cq_filter_source: str = cq_col1.selectbox(
+                "Source filter", ["(all)"] + _cq_sources, key=f"{_CQ_PFX}_filter_source"
+            )
+            _cq_min_priority: float = cq_col2.number_input(
+                "Min priority score", min_value=0.0, max_value=200.0, value=0.0, step=5.0,
+                key=f"{_CQ_PFX}_filter_min_priority"
+            )
+            _cq_sort_opts = ["priority_score", "score", "company", "source"]
+            _cq_sort_by: str = cq_col3.selectbox(
+                "Sort by", _cq_sort_opts, key=f"{_CQ_PFX}_sort_by"
+            )
+
+            # Reset page on filter change
+            _cq_watched = (_cq_filter_source, _cq_min_priority, _cq_sort_by)
+            if st.session_state.get(f"{_CQ_PFX}_filter_sentinel") != _cq_watched:
+                st.session_state[f"{_CQ_PFX}_page"] = 1
+            st.session_state[f"{_CQ_PFX}_filter_sentinel"] = _cq_watched
+
+            def _cq_filter_fn(item) -> bool:  # noqa: ANN001
+                if _cq_filter_source != "(all)" and (item.source or "") != _cq_filter_source:
+                    return False
+                if _cq_min_priority > 0 and (item.priority_score or 0) < _cq_min_priority:
+                    return False
+                return True
+
+            _cq_query = ListQuery(
+                page=st.session_state.get(f"{_CQ_PFX}_page", 1),
+                page_size=st.session_state.get(f"{_CQ_PFX}_page_size", 25),
+                sort_by=_cq_sort_by,
+                sort_dir="desc",
+            )
+            _cq_result = build_list_result(active_items, _cq_query, filter_fn=_cq_filter_fn)
+
+            st.markdown(f"**{_cq_result.total_count} active** items in queue (sorted by {_cq_sort_by})")
+            _cq_new_page = render_pagination_controls(_CQ_PFX, _cq_result)
+            if _cq_new_page != st.session_state.get(f"{_CQ_PFX}_page"):
+                st.session_state[f"{_CQ_PFX}_page"] = _cq_new_page
+                st.rerun()
+
+            for item in _cq_result.items:
                 with st.expander(
                     f"[{item.priority_score:.0f}] {item.title} @ {item.company} — {item.source}"
                 ):
@@ -3346,9 +3645,24 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 if not camp_items:
                     st.info("No queue items attached to this campaign. Use **Build/rebuild queue** from the Active Campaigns tab.")
                 else:
-                    st.caption(f"{len(camp_items)} item(s) in campaign queue")
+                    from cv_sender.listing import ListQuery as _LQcq, build_list_result as _blrcq, init_list_state as _ilscq, render_pagination_controls as _rpccq  # noqa: PLC0415, E501
+                    _CAMPQ_PFX = f"campq_{selected_camp_id[:8]}"
+                    _ilscq(_CAMPQ_PFX, {"page_size": 25, "sort_by": "priority_score", "sort_dir": "desc"})
 
-                    for item in sorted(camp_items, key=lambda x: x.priority_score, reverse=True):
+                    _campq_q = _LQcq(
+                        page=st.session_state.get(f"{_CAMPQ_PFX}_page", 1),
+                        page_size=25,
+                        sort_by="priority_score",
+                        sort_dir="desc",
+                    )
+                    _campq_result = _blrcq(camp_items, _campq_q)
+                    st.caption(f"{_campq_result.total_count} item(s) in campaign queue")
+                    _campq_new_page = _rpccq(_CAMPQ_PFX, _campq_result)
+                    if _campq_new_page != st.session_state.get(f"{_CAMPQ_PFX}_page"):
+                        st.session_state[f"{_CAMPQ_PFX}_page"] = _campq_new_page
+                        st.rerun()
+
+                    for item in _campq_result.items:
                         status_icon = {
                             "queued": "🟡", "in_progress": "🔵", "filled": "🟢",
                             "failed": "🔴", "sent": "✅", "skipped": "⏭️",
@@ -3460,7 +3774,38 @@ def _page_campaigns() -> None:  # noqa: PLR0912, PLR0914, PLR0915
             rejected = [d for d in report.decisions if d.decision in ("rejected", "needs_review", "failed")]
             if rejected:
                 with st.expander(f"Rejected / skipped offers ({len(rejected)})", expanded=False):
-                    for d in rejected:
+                    from cv_sender.listing import ListQuery as _LQ2, build_list_result as _blr2, init_list_state as _ils2, render_pagination_controls as _rpc2  # noqa: PLC0415, E501
+                    _REJ2_PFX = "camp_diag_rejected"
+                    _ils2(_REJ2_PFX, {"page_size": 25})
+                    _rej2_sources = sorted({d.source for d in rejected if d.source})
+                    _rej2_c1, _rej2_c2 = st.columns(2)
+                    _rej2_filter_src: str = _rej2_c1.selectbox(
+                        "Source", ["(all)"] + _rej2_sources, key=f"{_REJ2_PFX}_filter_src"
+                    )
+                    _rej2_filter_dec: str = _rej2_c2.selectbox(
+                        "Decision", ["(all)", "rejected", "needs_review", "failed"],
+                        key=f"{_REJ2_PFX}_filter_dec"
+                    )
+                    _rej2_watched = (_rej2_filter_src, _rej2_filter_dec)
+                    if st.session_state.get(f"{_REJ2_PFX}_sentinel") != _rej2_watched:
+                        st.session_state[f"{_REJ2_PFX}_page"] = 1
+                    st.session_state[f"{_REJ2_PFX}_sentinel"] = _rej2_watched
+
+                    def _rej2_fn(d) -> bool:  # noqa: ANN001
+                        if _rej2_filter_src != "(all)" and (d.source or "") != _rej2_filter_src:
+                            return False
+                        if _rej2_filter_dec != "(all)" and d.decision != _rej2_filter_dec:
+                            return False
+                        return True
+
+                    _rej2_q = _LQ2(page=st.session_state.get(f"{_REJ2_PFX}_page", 1), page_size=25)
+                    _rej2_result = _blr2(rejected, _rej2_q, filter_fn=_rej2_fn)
+                    _rej2_new_page = _rpc2(_REJ2_PFX, _rej2_result)
+                    if _rej2_new_page != st.session_state.get(f"{_REJ2_PFX}_page"):
+                        st.session_state[f"{_REJ2_PFX}_page"] = _rej2_new_page
+                        st.rerun()
+
+                    for d in _rej2_result.items:
                         with st.container(border=True):
                             c1, c2, c3 = st.columns([3, 2, 1])
                             with c1:
@@ -3847,14 +4192,34 @@ def _page_debug() -> None:
     st.title("Debug")
     st.caption("Inspect stored form-filling and Playwright collector debug runs.")
 
-    runs = services.get_debug_runs(limit=50)
+    from cv_sender.listing import ListQuery as _LQd, build_list_result as _blrd, init_list_state as _ilsd  # noqa: PLC0415, E501
+
+    _DBG_PFX = "debug_runs"
+    _ilsd(_DBG_PFX, {"page_size": 10, "sort_by": "started_at", "sort_dir": "desc"})
+
+    _dbg_page_size: int = st.selectbox(
+        "Form-filling runs per page", [10, 25],
+        index=[10, 25].index(st.session_state.get(f"{_DBG_PFX}_page_size", 10)),
+        key=f"{_DBG_PFX}_page_size",
+    )
+
+    runs = services.get_debug_runs(limit=200)
     st.subheader("Form filling debug")
-    st.caption("Last 50 form-filling debug runs stored under data/debug/form_filling/.")
+    st.caption("Last 200 form-filling debug runs stored under data/debug/form_filling/.")
     if not runs:
         st.info("No form-filling debug runs found. Enable form_filling.debug in settings to capture them.")
     else:
         import pandas as pd
 
+        _dbg_q = _LQd(
+            page=st.session_state.get(f"{_DBG_PFX}_page", 1),
+            page_size=_dbg_page_size,
+            sort_by="started_at",
+            sort_dir="desc",
+        )
+        _dbg_result = _blrd(runs, _dbg_q)
+
+        # Summary dataframe (all runs, small)
         summary = pd.DataFrame(
             [
                 {
@@ -3869,9 +4234,22 @@ def _page_debug() -> None:
                     "Run ID": r.run_id[:8] + "…",
                     "_run_id": r.run_id,
                 }
-                for r in runs
+                for r in _dbg_result.items
             ]
         )
+        st.caption(
+            f"Showing **{_dbg_result.start_index}–{_dbg_result.end_index}** "
+            f"of **{_dbg_result.total_count}** runs  "
+            f"(page {_dbg_result.page}/{_dbg_result.total_pages})"
+        )
+        _dbg_prev_col, _dbg_next_col, _ = st.columns([1, 1, 4])
+        if _dbg_prev_col.button("◀ Prev", key=f"{_DBG_PFX}_prev", disabled=not _dbg_result.has_prev):
+            st.session_state[f"{_DBG_PFX}_page"] = _dbg_result.page - 1
+            st.rerun()
+        if _dbg_next_col.button("Next ▶", key=f"{_DBG_PFX}_next", disabled=not _dbg_result.has_next):
+            st.session_state[f"{_DBG_PFX}_page"] = _dbg_result.page + 1
+            st.rerun()
+
         st.dataframe(summary.drop(columns=["_run_id"]), use_container_width=True)
 
         st.markdown("---")

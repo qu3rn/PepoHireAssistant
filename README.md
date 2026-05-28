@@ -716,6 +716,91 @@ Enable `answers.use_llm: true` in `settings.yaml`. The LLM is called only for qu
 
 ---
 
+## Large lists and pagination
+
+All major list views in the UI are paginated to avoid rendering hundreds of records at once.
+Pagination state is stored in Streamlit session state per page and survives page reruns.
+
+### Page sizes
+
+| View | Default page size | Options |
+|---|---|---|
+| Offers | 25 | 10, 25, 50, 100 |
+| Applications | 25 | 10, 25, 50, 100 |
+| Apply Queue (Job Search) | 25 | — |
+| Campaign Queue | 25 | — |
+| Gmail Matches | 25 | 10, 25, 50, 100 |
+| Collection Results (rejected) | 25 | — |
+| Debug Runs | 10 | 10, 25 |
+
+### Filters available per view
+
+**Offers:**
+- Free-text search (title, company, location, source, technologies)
+- Decision filter (`apply`, `maybe`, `skip`)
+- Source filter
+- Location filter
+- Min / max score
+- "Not yet applied" toggle
+
+**Applications:**
+- Free-text search (title, company, source, location)
+- Status filter
+- Source filter
+- Company substring filter
+- "Due follow-ups only" toggle
+
+**Apply Queue / Campaign Queue:**
+- Source filter
+- Min priority score
+- Sort by priority score, score, company, or source
+
+**Gmail Matches:**
+- Status filter (pending, applied, ignored)
+
+**Collection Results (rejected/skipped offers):**
+- Source filter
+- Decision filter (rejected, needs_review, failed)
+
+### Sorting
+
+| View | Sort fields |
+|---|---|
+| Offers | `created_at`, `score`, `priority_score`, `company`, `title`, `source` |
+| Applications | `updated_at`, `sent_at`, `follow_up_due_at`, `company`, `status` |
+| Queue / Campaign Queue | `priority_score`, `score`, `company`, `source` |
+| Debug Runs | `started_at` (default) |
+
+- `None` values always sort to the **end** regardless of sort direction.
+- Sort direction (ascending / descending) is user-selectable for Offers and Applications.
+
+### Bulk actions on Offers
+
+- By default, bulk actions (delete) apply to the **current page** only.
+- A **"Select all matching"** checkbox allows you to delete all offers matching the current
+  filters. A confirmation button is required before deletion proceeds.
+- A backup is created automatically before any bulk deletion.
+
+### Resetting the page
+
+Changing any filter, search text, sort field, or page size automatically resets the view
+to page 1 on the next rerun. This prevents stale "page 5 of 2" states.
+
+### Implementation
+
+All filtering, searching, and sorting logic lives in `src/cv_sender/listing.py`:
+
+- `ListQuery` – encapsulates page, page_size, search_text, sort_by, sort_dir, filters
+- `ListResult` – holds the current page's items plus total_count, total_pages, has_prev, has_next
+- `build_list_result(items, query, search_fields, filter_fn)` – full pipeline
+- `render_pagination_controls(key_prefix, result)` – Streamlit Prev / Next / page selector
+- `init_list_state(key_prefix, defaults)` – initialises session_state keys safely
+
+The utilities are tested in `tests/test_listing.py` (32 tests covering pagination, search,
+filters, sort, None handling, dict items, and page boundary behaviour).
+
+---
+
 ## Follow-up tracking
 
 After marking an application as **sent**, the assistant automatically schedules a
