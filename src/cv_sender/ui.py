@@ -2516,33 +2516,37 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
 
         with col_pw_import_now:
             if st.button("Import collected URLs", key="pw_import_now_top"):
-                from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
-                from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
-                from cv_sender.services import import_offers_from_urls  # noqa: PLC0415
+                from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+                from cv_sender.playwright_collection import import_collected_urls  # noqa: PLC0415
 
                 pw_last_result = st.session_state.get("pw_last_result") or {}
                 prior_results = pw_last_result.get("collection_results", [])
-                pending_urls = [cu.url for r in prior_results for cu in r.collected_urls]
-                if not pending_urls:
+                if not prior_results:
                     st.warning("No collected URLs available yet. Run Playwright collection first.")
                 else:
+                    run_criteria = JobSearchCriteria.from_config(settings_pw.job_search)
+                    imported_total = 0
+                    duplicate_total = 0
+                    failed_total = 0
                     with st.spinner("Importing collected URLs …"):
-                        import_res = import_offers_from_urls(
-                            urls=pending_urls,
-                            auto_score=pw_do_score,
-                            max_urls=max(len(pending_urls), 50),
-                        )
-                        if pw_add_to_queue and import_res.imported_count:
-                            build_apply_queue_from_offers()
-                            for campaign in get_active_campaigns():
-                                build_campaign_queue(campaign.id)
-                    pw_last_result["total_imported"] = import_res.imported_count
-                    pw_last_result["total_duplicates"] = import_res.duplicate_count + pw_last_result.get("total_duplicates", 0)
-                    pw_last_result["total_failed"] = import_res.failed_count
-                    pw_last_result["import_result"] = import_res
+                        for r in prior_results:
+                            summary = import_collected_urls(
+                                r,
+                                auto_score=pw_do_score,
+                                criteria=run_criteria,
+                                add_to_queue=pw_add_to_queue,
+                                attach_to_active_campaigns=False,
+                            )
+                            imported_total += summary.imported_count
+                            duplicate_total += summary.duplicate_count
+                            failed_total += summary.failed_count
+                    pw_last_result["total_imported"] = imported_total
+                    pw_last_result["total_duplicates"] = duplicate_total + pw_last_result.get("total_duplicates", 0)
+                    pw_last_result["total_failed"] = failed_total
+                    pw_last_result["import_result"] = None
                     st.session_state["pw_last_result"] = pw_last_result
                     st.success(
-                        f"Imported: {import_res.imported_count} · Duplicates: {import_res.duplicate_count} · Failed: {import_res.failed_count}"
+                        f"Imported: {imported_total} · Duplicates: {duplicate_total} · Failed: {failed_total}"
                     )
 
         with col_pw_collect_import:
@@ -2613,6 +2617,14 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                         "Listing URLs": len(r.listing_urls),
                         "Raw links": r.raw_link_count,
                         "Job URLs": r.job_url_count,
+                        "Relevant": sum(1 for cu in r.collected_urls if getattr(cu, "relevance_decision", "") == "relevant"),
+                        "Needs review": sum(1 for cu in r.collected_urls if getattr(cu, "relevance_decision", "") == "needs_review")
+                        + len(getattr(r, "needs_review_urls", [])),
+                        "Irrelevant": sum(1 for cu in r.collected_urls if getattr(cu, "relevance_decision", "") == "irrelevant"),
+                        "Rejected listing": len(getattr(r, "collected_listing_urls", [])),
+                        "Rejected company": len(getattr(r, "company_urls", [])),
+                        "Rejected nav": len(getattr(r, "navigation_urls", [])),
+                        "Unknown": len(getattr(r, "unknown_urls", [])),
                         "Duplicates": r.duplicate_count,
                         "Errors": len(r.errors),
                         "Warnings": len(r.warnings),
@@ -2621,11 +2633,117 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 ]
                 st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
+                detailed_rows = []
+                for r in col_results:
+                    for item in r.collected_urls:
+                        detailed_rows.append(
+                            {
+                                "URL": item.url,
+                                "Source": item.source,
+                                "Classification": getattr(item, "classification_type", "job_offer"),
+                                "Classification reason": getattr(item, "classification_reason", ""),
+                                "Relevance score": getattr(item, "relevance_score", 0),
+                                "Matched keywords": ", ".join(getattr(item, "matched_keywords", [])),
+                                "Matched technologies": ", ".join(getattr(item, "matched_technologies", [])),
+                                "Negative matches": ", ".join(getattr(item, "rejected_keywords", [])),
+                                "Relevance decision": getattr(item, "relevance_decision", "irrelevant"),
+                                "Action": getattr(item, "suggested_action", "ignore"),
+                            }
+                        )
+
+                    rejected_groups = [
+                        getattr(r, "collected_listing_urls", []),
+                        getattr(r, "company_urls", []),
+                        getattr(r, "navigation_urls", []),
+                        getattr(r, "unknown_urls", []),
+                        getattr(r, "needs_review_urls", []),
+                    ]
+                    for group in rejected_groups:
+                        for item in group:
+                            detailed_rows.append(
+                                {
+                                    "URL": item.url,
+                                    "Source": item.source,
+                                    "Classification": getattr(item, "classification_type", "unknown"),
+                                    "Classification reason": getattr(item, "classification_reason", ""),
+                                    "Relevance score": getattr(item, "relevance_score", 0),
+                                    "Matched keywords": ", ".join(getattr(item, "matched_keywords", [])),
+                                    "Matched technologies": ", ".join(getattr(item, "matched_technologies", [])),
+                                    "Negative matches": ", ".join(getattr(item, "rejected_keywords", [])),
+                                    "Relevance decision": getattr(item, "relevance_decision", "needs_review"),
+                                    "Action": getattr(item, "suggested_action", "ignore"),
+                                }
+                            )
+
+                if detailed_rows:
+                    with st.expander(f"Per-URL diagnostics ({len(detailed_rows)})"):
+                        st.dataframe(pd.DataFrame(detailed_rows), use_container_width=True)
+
                 for r in col_results:
                     if r.warnings:
                         with st.expander(f"{r.source} warnings"):
                             for w in r.warnings:
                                 st.warning(w)
+
+                show_rejected = st.checkbox(
+                    "Show rejected/listing links",
+                    value=False,
+                    key="pw_show_rejected_links",
+                )
+                if show_rejected:
+                    ignored_urls = st.session_state.setdefault("pw_ignored_needs_review", set())
+                    for r in col_results:
+                        buckets = [
+                            ("listing", getattr(r, "collected_listing_urls", [])),
+                            ("company", getattr(r, "company_urls", [])),
+                            ("navigation", getattr(r, "navigation_urls", [])),
+                            ("unknown", getattr(r, "unknown_urls", [])),
+                        ]
+                        total_rejected = sum(len(items) for _, items in buckets)
+                        if total_rejected == 0 and not getattr(r, "needs_review_urls", []):
+                            continue
+
+                        with st.expander(f"{r.source} rejected URLs ({total_rejected})"):
+                            for bucket_name, items in buckets:
+                                if not items:
+                                    continue
+                                st.caption(f"{bucket_name}: {len(items)}")
+                                preview = [item.url for item in items[:20]]
+                                st.text_area(
+                                    f"{r.source} {bucket_name} URLs",
+                                    value="\n".join(preview),
+                                    height=120,
+                                    key=f"pw_rejected_{r.source}_{bucket_name}",
+                                )
+
+                            review_items = [
+                                item for item in getattr(r, "needs_review_urls", [])
+                                if item.url not in ignored_urls
+                            ]
+                            if review_items:
+                                st.caption(f"needs_review: {len(review_items)}")
+                                for idx, item in enumerate(review_items[:20]):
+                                    c_url, c_import, c_ignore = st.columns([6, 1, 1])
+                                    c_url.write(item.url)
+                                    if c_import.button("Import anyway", key=f"pw_import_review_{r.source}_{idx}"):
+                                        from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                                        from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
+                                        from cv_sender.services import import_offer_from_url  # noqa: PLC0415
+
+                                        with st.spinner("Importing reviewed URL …"):
+                                            item_result = import_offer_from_url(item.url, auto_score=pw_do_score)
+                                            if pw_add_to_queue and item_result.status.value == "imported":
+                                                build_apply_queue_from_offers()
+                                                for campaign in get_active_campaigns():
+                                                    build_campaign_queue(campaign.id)
+                                        if item_result.error:
+                                            st.error(f"{item.url}: {item_result.error}")
+                                        else:
+                                            st.success(f"Imported reviewed URL: {item.url}")
+                                    if c_ignore.button("Ignore", key=f"pw_ignore_review_{r.source}_{idx}"):
+                                        ignored_urls.add(item.url)
+                                        st.session_state["pw_ignored_needs_review"] = ignored_urls
+                                        st.rerun()
 
             # Show collected URLs if collect-only mode
             all_collected = [
@@ -2636,27 +2754,32 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     urls_text = "\n".join(all_collected)
                     st.text_area("URLs", value=urls_text, height=200, key="pw_urls_preview")
                     if st.button("Import these URLs now", key="pw_import_now"):
-                        from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
-                        from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
-                        from cv_sender.services import import_offers_from_urls  # noqa: PLC0415
+                        from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+                        from cv_sender.playwright_collection import import_collected_urls  # noqa: PLC0415
 
+                        run_criteria = JobSearchCriteria.from_config(settings_pw.job_search)
+                        imported_total = 0
+                        duplicate_total = 0
+                        failed_total = 0
                         with st.spinner("Importing …"):
-                            import_res = import_offers_from_urls(
-                                urls=all_collected,
-                                auto_score=pw_do_score,
-                                max_urls=max(len(all_collected), 50),
-                            )
-                            if pw_add_to_queue and import_res.imported_count:
-                                build_apply_queue_from_offers()
-                                for campaign in get_active_campaigns():
-                                    build_campaign_queue(campaign.id)
+                            for r in col_results:
+                                summary = import_collected_urls(
+                                    r,
+                                    auto_score=pw_do_score,
+                                    criteria=run_criteria,
+                                    add_to_queue=pw_add_to_queue,
+                                    attach_to_active_campaigns=False,
+                                )
+                                imported_total += summary.imported_count
+                                duplicate_total += summary.duplicate_count
+                                failed_total += summary.failed_count
                         st.success(
-                            f"Imported: {import_res.imported_count} · "
-                            f"Duplicates: {import_res.duplicate_count} · "
-                            f"Failed: {import_res.failed_count}"
+                            f"Imported: {imported_total} · "
+                            f"Duplicates: {duplicate_total} · "
+                            f"Failed: {failed_total}"
                         )
-                        pw_last["total_imported"] = import_res.imported_count
-                        pw_last["import_result"] = import_res
+                        pw_last["total_imported"] = imported_total
+                        pw_last["import_result"] = None
                         st.rerun()
 
     # ================================================================== #

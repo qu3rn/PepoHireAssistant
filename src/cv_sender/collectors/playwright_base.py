@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 try:
     from playwright.sync_api import sync_playwright
 except ImportError:  # pragma: no cover
@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover
 from pydantic import BaseModel, Field
 
 from cv_sender.collectors.base import JobSearchCriteria
+from cv_sender.relevance import EmergencyReactMode, match_offer_relevance
 
 if TYPE_CHECKING:
     pass  # playwright Page type used as Any to avoid hard dependency
@@ -53,6 +54,27 @@ class PlaywrightCollectedUrl(BaseModel):
     collected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     listing_url: str = ""
     raw_text_preview: str = ""
+    classification_type: str = "unknown"
+    classification_reason: str = "unknown"
+    relevance_score: int = 0
+    relevance_decision: str = "irrelevant"
+    matched_keywords: list[str] = Field(default_factory=list)
+    matched_technologies: list[str] = Field(default_factory=list)
+    matched_languages: list[str] = Field(default_factory=list)
+    rejected_keywords: list[str] = Field(default_factory=list)
+    relevance_reasons: list[str] = Field(default_factory=list)
+    relevance_warnings: list[str] = Field(default_factory=list)
+    suggested_action: str = "ignore"
+
+
+CollectedUrlType = Literal["job_offer", "listing", "company", "navigation", "unknown", "needs_review"]
+
+
+class UrlClassification(BaseModel):
+    type: CollectedUrlType
+    reason: str
+    source: str
+    url: str
 
 
 class PlaywrightCollectionResult(BaseModel):
@@ -62,6 +84,12 @@ class PlaywrightCollectionResult(BaseModel):
     run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     listing_urls: list[str] = Field(default_factory=list)
     collected_urls: list[PlaywrightCollectedUrl] = Field(default_factory=list)
+    collected_listing_urls: list[PlaywrightCollectedUrl] = Field(default_factory=list)
+    company_urls: list[PlaywrightCollectedUrl] = Field(default_factory=list)
+    navigation_urls: list[PlaywrightCollectedUrl] = Field(default_factory=list)
+    unknown_urls: list[PlaywrightCollectedUrl] = Field(default_factory=list)
+    needs_review_urls: list[PlaywrightCollectedUrl] = Field(default_factory=list)
+    rejected_examples: dict[str, list[str]] = Field(default_factory=dict)
     raw_link_count: int = 0
     normalized_link_count: int = 0
     duplicate_count: int = 0
@@ -75,6 +103,113 @@ class PlaywrightCollectionResult(BaseModel):
     @property
     def job_url_count(self) -> int:
         return len(self.collected_urls)
+
+
+def _canonicalize_url(url: str) -> str:
+    from urllib.parse import urlparse, urlunparse  # noqa: PLC0415
+
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"), "", "", ""))
+
+
+def _path_segments(path: str) -> list[str]:
+    return [seg for seg in path.split("/") if seg]
+
+
+def classify_collected_url(source: str, url: str) -> UrlClassification:
+    """Classify URL shape by source, independent from job relevance."""
+    from urllib.parse import urlparse  # noqa: PLC0415
+
+    parsed = urlparse(url)
+    host = parsed.netloc.lower().replace("www.", "")
+    path = parsed.path.lower()
+    if parsed.params:
+        path = f"{path};{parsed.params.lower()}"
+    segments = _path_segments(path)
+    src = source.lower()
+
+    def out(c_type: CollectedUrlType, reason: str) -> UrlClassification:
+        return UrlClassification(type=c_type, reason=reason, source=src, url=url)
+
+    # Global navigation/login/account patterns.
+    if any(token in path for token in ("/login", "/logowanie", "/signin", "/rejestracja", "/register", "/konto", "/account", "/profile", "/profil")):
+        return out("navigation", "global_auth_or_profile_path")
+    if any(token in path for token in ("/blog", "/faq", "/help", "/about", "/kontakt", "/contact", "/kalkulator")):
+        return out("navigation", "global_navigation_path")
+
+    # Company-like pages.
+    if any(token in path for token in ("/company", "/companies", "/firmy", "/brands")):
+        return out("company", "global_company_path")
+
+    if src == "pracuj" or "pracuj.pl" in host:
+        if ",oferta," in path:
+            return out("job_offer", "pracuj_offer_id_pattern")
+        if re.search(r";\d{8,}", path):
+            return out("job_offer", "pracuj_offer_semicolon_id_pattern")
+        if path == "/praca" or path.startswith("/praca/"):
+            return out("listing", "pracuj_listing_praca_path")
+        return out("unknown", "pracuj_unknown_path")
+
+    if src == "rocketjobs" or "rocketjobs.pl" in host:
+        if path.startswith("/firmy") or path.startswith("/firma"):
+            return out("company", "rocketjobs_company_path")
+        if path == "/oferta-pracy":
+            return out("needs_review", "rocketjobs_offer_path_missing_slug")
+        if path.startswith("/oferta-pracy/"):
+            slug = path.removeprefix("/oferta-pracy/").strip("/")
+            if slug:
+                return out("job_offer", "rocketjobs_oferta_pracy_path")
+            return out("needs_review", "rocketjobs_offer_path_missing_slug")
+        if path == "/oferty-pracy" or path.startswith("/oferty-pracy/"):
+            return out("listing", "rocketjobs_listing_oferty_pracy_path")
+        if path == "/praca" or path.startswith("/praca"):
+            return out("listing", "rocketjobs_listing_praca_path")
+        if path.startswith("/oferta"):
+            return out("needs_review", "rocketjobs_offer_like_unknown_path")
+        return out("unknown", "rocketjobs_unknown_path")
+
+    if src == "justjoin" or "justjoin.it" in host:
+        if path.startswith("/companies") or path.startswith("/company") or path.startswith("/brands"):
+            return out("company", "justjoin_company_path")
+        if path == "/job-offer":
+            return out("needs_review", "justjoin_offer_path_missing_slug")
+        if path.startswith("/job-offer/"):
+            slug = path.removeprefix("/job-offer/").strip("/")
+            if slug:
+                return out("job_offer", "justjoin_job_offer_path")
+            return out("needs_review", "justjoin_offer_path_missing_slug")
+        if path == "/job-offers" or path.startswith("/job-offers/"):
+            return out("listing", "justjoin_listing_job_offers_path")
+        return out("unknown", "justjoin_unknown_path")
+
+    if src == "nofluffjobs" or "nofluffjobs.com" in host:
+        if path.startswith("/company") or path.startswith("/companies"):
+            return out("company", "nofluffjobs_company_path")
+        if path in ("", "/", "/pl"):
+            return out("listing", "nofluffjobs_home_listing_path")
+        if path.startswith("/job/") or path.startswith("/pl/job/"):
+            slug = segments[-1] if segments else ""
+            if slug and slug not in ("job",):
+                return out("job_offer", "nofluffjobs_job_path")
+            return out("needs_review", "nofluffjobs_job_path_missing_slug")
+        if path.startswith("/pl/") or len(segments) == 1:
+            return out("listing", "nofluffjobs_listing_path")
+        return out("unknown", "nofluffjobs_unknown_path")
+
+    if src == "linkedin" or "linkedin.com" in host:
+        if "/jobs/view/" in path and re.search(r"/jobs/view/\d+", path):
+            return out("job_offer", "linkedin_jobs_view_path")
+        if "/jobs/search" in path:
+            return out("listing", "linkedin_jobs_search_path")
+        return out("unknown", "linkedin_unknown_path")
+
+    return out("unknown", "unknown_source_or_path")
+
+
+def _append_rejected_example(result: PlaywrightCollectionResult, bucket: str, url: str, max_examples: int = 8) -> None:
+    examples = result.rejected_examples.setdefault(bucket, [])
+    if len(examples) < max_examples and url not in examples:
+        examples.append(url)
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +461,29 @@ class PlaywrightJobCollector(ABC):
         scroll_pause = getattr(cfg, "scroll_pause_ms", 1200) / 1000.0
         user_agent = getattr(cfg, "user_agent", None)
 
+        emergency_mode = EmergencyReactMode()
+        try:
+            from cv_sender.config import load_settings  # noqa: PLC0415
+
+            em_cfg = load_settings().job_search.emergency_react_mode
+            emergency_mode = EmergencyReactMode(
+                enabled=bool(em_cfg.enabled),
+                accept_needs_review=bool(em_cfg.accept_needs_review),
+                reject_obvious_non_it=bool(em_cfg.reject_obvious_non_it),
+                min_relevance_score=int(em_cfg.min_relevance_score),
+                needs_review_score=int(em_cfg.needs_review_score),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
         seen_urls: set[str] = set()
+        seen_by_type: dict[str, set[str]] = {
+            "listing": set(),
+            "company": set(),
+            "navigation": set(),
+            "unknown": set(),
+            "needs_review": set(),
+        }
         all_raw_links: list[str] = []
         all_extracted_links: list[str] = []  # all hrefs before source-specific filtering
 
@@ -353,8 +510,11 @@ class PlaywrightJobCollector(ABC):
                             scroll_pause=scroll_pause,
                             max_urls=max_urls,
                             seen_urls=seen_urls,
+                            seen_by_type=seen_by_type,
                             result=result,
                             cfg=cfg,
+                            criteria=criteria,
+                            emergency_mode=emergency_mode,
                         )
                         all_raw_links.extend(all_page_hrefs)
                         all_extracted_links.extend(all_page_hrefs)
@@ -388,6 +548,11 @@ class PlaywrightJobCollector(ABC):
                 f"Sample rejected links: {sample}"
             )
 
+        if result.needs_review_urls:
+            result.warnings.append(
+                f"{self.source}: {len(result.needs_review_urls)} URL(s) need review and were not imported automatically."
+            )
+
         return result
 
     def _process_listing_page(
@@ -398,8 +563,11 @@ class PlaywrightJobCollector(ABC):
         scroll_pause: float,
         max_urls: int,
         seen_urls: set[str],
+        seen_by_type: dict[str, set[str]],
         result: PlaywrightCollectionResult,
         cfg: Any,
+        criteria: JobSearchCriteria,
+        emergency_mode: EmergencyReactMode,
     ) -> tuple[list[str], list[str], list[str], str]:
         """Navigate to *listing_url*, scroll, extract links, and populate *result*.
 
@@ -434,25 +602,88 @@ class PlaywrightJobCollector(ABC):
             new_count = 0
 
             for href in links:
-                if not self.is_job_url(href):
-                    continue
-                norm = self.normalize_job_url(href)
-                if norm in seen_urls:
-                    result.duplicate_count += 1
-                    continue
-                seen_urls.add(norm)
-                all_page_links.append(norm)
-                new_count += 1
-                result.normalized_link_count += 1
-                result.collected_urls.append(
-                    PlaywrightCollectedUrl(
-                        source=self.source,
-                        url=norm,
-                        listing_url=listing_url,
+                classification = classify_collected_url(self.source, href)
+
+                if classification.type == "job_offer":
+                    norm = self.normalize_job_url(href)
+                    if norm in seen_urls:
+                        result.duplicate_count += 1
+                        continue
+
+                    relevance = match_offer_relevance(
+                        {
+                            "source": self.source,
+                            "url": norm,
+                            "title_preview": "",
+                            "raw_text_preview": "",
+                        },
+                        criteria,
+                        emergency_mode=emergency_mode,
                     )
+
+                    seen_urls.add(norm)
+                    all_page_links.append(norm)
+                    new_count += 1
+                    result.normalized_link_count += 1
+                    suggested_action = "import"
+                    if relevance.decision == "irrelevant":
+                        suggested_action = "ignore"
+                    elif relevance.decision == "needs_review":
+                        suggested_action = "import anyway" if emergency_mode.accept_needs_review else "ignore"
+
+                    result.collected_urls.append(
+                        PlaywrightCollectedUrl(
+                            source=self.source,
+                            url=norm,
+                            listing_url=listing_url,
+                            classification_type=classification.type,
+                            classification_reason=classification.reason,
+                            relevance_score=relevance.score,
+                            relevance_decision=relevance.decision,
+                            matched_keywords=relevance.matched_keywords,
+                            matched_technologies=relevance.matched_technologies,
+                            matched_languages=relevance.matched_languages,
+                            rejected_keywords=relevance.rejected_keywords,
+                            relevance_reasons=relevance.reasons,
+                            relevance_warnings=relevance.warnings,
+                            suggested_action=suggested_action,
+                        )
+                    )
+                    if len(result.collected_urls) >= max_urls:
+                        break
+                    continue
+
+                canon = _canonicalize_url(href)
+                bucket = classification.type
+                if canon in seen_by_type[bucket]:
+                    continue
+                seen_by_type[bucket].add(canon)
+
+                item = PlaywrightCollectedUrl(
+                    source=self.source,
+                    url=canon,
+                    listing_url=listing_url,
+                    classification_type=classification.type,
+                    classification_reason=classification.reason,
+                    suggested_action="ignore",
                 )
-                if len(result.collected_urls) >= max_urls:
-                    break
+                if classification.type == "listing":
+                    item.suggested_action = "use as listing seed"
+                    result.collected_listing_urls.append(item)
+                    _append_rejected_example(result, "listing", canon)
+                elif classification.type == "company":
+                    result.company_urls.append(item)
+                    _append_rejected_example(result, "company", canon)
+                elif classification.type == "navigation":
+                    result.navigation_urls.append(item)
+                    _append_rejected_example(result, "navigation", canon)
+                elif classification.type == "needs_review":
+                    item.suggested_action = "import anyway"
+                    result.needs_review_urls.append(item)
+                    _append_rejected_example(result, "needs_review", canon)
+                else:
+                    result.unknown_urls.append(item)
+                    _append_rejected_example(result, "unknown", canon)
 
             if len(result.collected_urls) >= max_urls:
                 break

@@ -12,12 +12,15 @@ import pytest
 from cv_sender.collectors.base import JobSearchCriteria
 from cv_sender.collectors.playwright_base import (
     PlaywrightCollectionResult,
+    PlaywrightCollectedUrl,
     PlaywrightJobCollector,
+    classify_collected_url,
     classify_page,
     detect_blocked_page,
     detect_captcha,
     detect_login_wall,
 )
+from cv_sender.models import BatchImportItemResult, BatchImportResult, Decision, ImportStatus, Offer
 from cv_sender.collectors.playwright_justjoin import PlaywrightJustJoinCollector
 from cv_sender.collectors.playwright_nofluffjobs import PlaywrightNoFluffJobsCollector
 from cv_sender.collectors.playwright_pracuj import PlaywrightPracujCollector
@@ -143,22 +146,22 @@ def test_classify_page_normal() -> None:
 
 def test_justjoin_is_job_url_positive() -> None:
     c = PlaywrightJustJoinCollector()
-    assert c.is_job_url("https://justjoin.it/offers/senior-react-developer-warsaw")
-    assert c.is_job_url("https://justjoin.it/job-offers/react-dev-at-acme")
-    assert c.is_job_url("https://www.justjoin.it/offers/frontend-dev")
+    assert c.is_job_url("https://justjoin.it/job-offer/link-group-senior-frontend-react-developer-wroclaw-javascript")
+    assert c.is_job_url("https://www.justjoin.it/job-offer/frontend-react-dev-remote")
 
 
 def test_justjoin_is_job_url_negative() -> None:
     c = PlaywrightJustJoinCollector()
     assert not c.is_job_url("https://justjoin.it/job-offers")  # listing page, no trailing slug
+    assert not c.is_job_url("https://justjoin.it/job-offers/all-locations/javascript")
     assert not c.is_job_url("https://linkedin.com/jobs/view/123")
     assert not c.is_job_url("https://justjoin.it/companies/acme")
 
 
 def test_justjoin_normalize_strips_query() -> None:
     c = PlaywrightJustJoinCollector()
-    url = "https://justjoin.it/offers/react-dev?utm_source=google&utm_medium=cpc"
-    assert c.normalize_job_url(url) == "https://justjoin.it/offers/react-dev"
+    url = "https://justjoin.it/job-offer/react-dev?utm_source=google&utm_medium=cpc"
+    assert c.normalize_job_url(url) == "https://justjoin.it/job-offer/react-dev"
 
 
 def test_justjoin_build_search_urls(broad_criteria: JobSearchCriteria) -> None:
@@ -193,21 +196,24 @@ def test_justjoin_build_search_urls_empty_keywords() -> None:
 
 def test_rocketjobs_is_job_url_positive() -> None:
     c = PlaywrightRocketJobsCollector()
-    assert c.is_job_url("https://rocketjobs.pl/oferty-pracy/senior-react-dev")
-    assert c.is_job_url("https://www.rocketjobs.pl/oferty-pracy/frontend-engineer")
+    assert c.is_job_url(
+        "https://rocketjobs.pl/oferta-pracy/biedronka-sprzedawca---kasjer-m-k-biedronka-sandomierz-niepelny-etat-sandomierz-praca-w-sklepie-070f7936"
+    )
+    assert c.is_job_url("https://www.rocketjobs.pl/oferta-pracy/frontend-engineer-react-remote")
 
 
 def test_rocketjobs_is_job_url_negative() -> None:
     c = PlaywrightRocketJobsCollector()
     assert not c.is_job_url("https://rocketjobs.pl/oferty-pracy")  # listing, no slug
+    assert not c.is_job_url("https://rocketjobs.pl/oferty-pracy/konin")
     assert not c.is_job_url("https://rocketjobs.pl/firmy/acme")
     assert not c.is_job_url("https://justjoin.it/offers/frontend")
 
 
 def test_rocketjobs_normalize_strips_query() -> None:
     c = PlaywrightRocketJobsCollector()
-    url = "https://rocketjobs.pl/oferty-pracy/react-dev?ref=homepage"
-    assert c.normalize_job_url(url) == "https://rocketjobs.pl/oferty-pracy/react-dev"
+    url = "https://rocketjobs.pl/oferta-pracy/react-dev?ref=homepage"
+    assert c.normalize_job_url(url) == "https://rocketjobs.pl/oferta-pracy/react-dev"
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +261,39 @@ def test_pracuj_is_job_url_negative() -> None:
     c = PlaywrightPracujCollector()
     assert not c.is_job_url("https://pracuj.pl/praca")
     assert not c.is_job_url("https://nofluffjobs.com/job/react")
+
+
+def test_classify_collected_url_examples() -> None:
+    justjoin = classify_collected_url(
+        "justjoin",
+        "https://justjoin.it/job-offer/link-group-senior-frontend-react-developer-wroclaw-javascript",
+    )
+    assert justjoin.type == "job_offer"
+    assert justjoin.reason == "justjoin_job_offer_path"
+
+    justjoin_listing = classify_collected_url("justjoin", "https://justjoin.it/job-offers/all-locations/javascript")
+    assert justjoin_listing.type == "listing"
+    assert justjoin_listing.reason == "justjoin_listing_job_offers_path"
+
+    rocket_offer = classify_collected_url(
+        "rocketjobs",
+        "https://rocketjobs.pl/oferta-pracy/biedronka-sprzedawca---kasjer-m-k-biedronka-sandomierz-niepelny-etat-sandomierz-praca-w-sklepie-070f7936",
+    )
+    assert rocket_offer.type == "job_offer"
+    assert rocket_offer.reason == "rocketjobs_oferta_pracy_path"
+
+    rocket_listing = classify_collected_url("rocketjobs", "https://rocketjobs.pl/oferty-pracy/konin")
+    assert rocket_listing.type == "listing"
+    assert rocket_listing.reason == "rocketjobs_listing_oferty_pracy_path"
+
+    pracuj = classify_collected_url(
+        "pracuj",
+        "https://www.pracuj.pl/praca/fullstack-developer-net-%2b-react-wroclaw-legnicka-55f,oferta,1004851255",
+    )
+    assert pracuj.type == "job_offer"
+    assert pracuj.reason == "pracuj_offer_id_pattern"
+
+    assert classify_collected_url("pracuj", "https://www.pracuj.pl/praca").type == "listing"
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +396,8 @@ def test_collect_urls_collects_job_urls(
 ) -> None:
     """Happy path: page has job links → they are collected."""
     job_hrefs = [
-        "https://justjoin.it/offers/react-developer-acme",
-        "https://justjoin.it/offers/frontend-engineer-beta",
+        "https://justjoin.it/job-offer/react-developer-acme",
+        "https://justjoin.it/job-offer/frontend-engineer-beta",
         "https://justjoin.it/job-offers",  # listing page, should be rejected
         "https://www.google.com/",          # non-job URL, should be rejected
     ]
@@ -373,8 +412,8 @@ def test_collect_urls_collects_job_urls(
 
     assert result.job_url_count == 2
     urls = [cu.url for cu in result.collected_urls]
-    assert "https://justjoin.it/offers/react-developer-acme" in urls
-    assert "https://justjoin.it/offers/frontend-engineer-beta" in urls
+    assert "https://justjoin.it/job-offer/react-developer-acme" in urls
+    assert "https://justjoin.it/job-offer/frontend-engineer-beta" in urls
 
 
 def test_collect_urls_deduplicates(  # noqa: PLR0912
@@ -395,8 +434,8 @@ def test_collect_urls_deduplicates(  # noqa: PLR0912
         exclude_keywords=[],
     )
     job_hrefs = [
-        "https://justjoin.it/offers/react-dev?utm_source=a",
-        "https://justjoin.it/offers/react-dev?utm_source=b",  # same after normalization
+        "https://justjoin.it/job-offer/react-dev?utm_source=a",
+        "https://justjoin.it/job-offer/react-dev?utm_source=b",  # same after normalization
     ]
     mock_pw_cm, _ = _make_mock_playwright_context("10 React jobs", job_hrefs)
     monkeypatch.setattr(
@@ -507,7 +546,7 @@ def test_collect_and_import_calls_import_function(
 ) -> None:
     """collect_and_import calls import_offers_from_urls with the collected URLs."""
     job_hrefs = [
-        "https://justjoin.it/offers/react-dev-acme",
+        "https://justjoin.it/job-offer/react-dev-acme",
     ]
     mock_pw_cm, _ = _make_mock_playwright_context("Jobs", job_hrefs)
     monkeypatch.setattr(
@@ -532,7 +571,7 @@ def test_collect_and_import_calls_import_function(
 
     mock_import.assert_called_once()
     called_urls = mock_import.call_args.kwargs.get("urls") or mock_import.call_args.args[0]
-    assert "https://justjoin.it/offers/react-dev-acme" in called_urls
+    assert "https://justjoin.it/job-offer/react-dev-acme" in called_urls
     assert summary["total_collected"] == 1
 
 
@@ -568,7 +607,11 @@ def test_import_collected_urls_calls_batch_import() -> None:
         source="justjoin",
         raw_link_count=2,
         collected_urls=[
-            PlaywrightCollectedUrl(source="justjoin", url="https://justjoin.it/offers/react-dev"),
+            PlaywrightCollectedUrl(
+                source="justjoin",
+                url="https://justjoin.it/job-offer/react-dev",
+                relevance_decision="relevant",
+            ),
         ],
     )
 
@@ -588,7 +631,7 @@ def test_collect_import_and_score_with_playwright_collect_only_skips_import(
 ) -> None:
     mock_pw_cm, _ = _make_mock_playwright_context(
         "Jobs",
-        ["https://justjoin.it/offers/react-dev-acme"],
+        ["https://justjoin.it/job-offer/react-dev-acme"],
     )
     monkeypatch.setattr(
         "cv_sender.collectors.playwright_base._DEBUG_BASE",
@@ -611,6 +654,157 @@ def test_collect_import_and_score_with_playwright_collect_only_skips_import(
     mock_import.assert_not_called()
     assert report.source_summaries[0].found_count == 1
     assert report.source_summaries[0].accepted_count == 1
+
+
+def test_import_collected_urls_does_not_auto_import_unknown_or_listing() -> None:
+    from cv_sender.models import BatchImportResult
+    from cv_sender.playwright_collection import import_collected_urls
+
+    result = PlaywrightCollectionResult(
+        source="rocketjobs",
+        raw_link_count=3,
+        collected_urls=[],
+        collected_listing_urls=[
+            PlaywrightCollectedUrl(source="rocketjobs", url="https://rocketjobs.pl/oferty-pracy/konin"),
+        ],
+        unknown_urls=[
+            PlaywrightCollectedUrl(source="rocketjobs", url="https://rocketjobs.pl/oferta/react_dev"),
+        ],
+    )
+
+    with patch(
+        "cv_sender.playwright_collection.import_offers_from_urls",
+        return_value=BatchImportResult(),
+    ) as mock_import:
+        summary = import_collected_urls(result, auto_score=False)
+
+    mock_import.assert_not_called()
+    assert summary.collected_count == 0
+
+
+def test_collect_urls_unknown_urls_recorded_in_diagnostics(
+    broad_criteria: JobSearchCriteria, minimal_cfg, tmp_path: object, monkeypatch
+) -> None:
+    hrefs = [
+        "https://rocketjobs.pl/oferta/react_dev",  # uncertain pattern
+        "https://rocketjobs.pl/oferty-pracy/konin",  # listing
+    ]
+    mock_pw_cm, _ = _make_mock_playwright_context("Jobs", hrefs)
+    monkeypatch.setattr(
+        "cv_sender.collectors.playwright_base._DEBUG_BASE",
+        __import__("pathlib").Path(str(tmp_path)),
+    )
+    with patch("cv_sender.collectors.playwright_base.sync_playwright", return_value=mock_pw_cm):
+        c = PlaywrightRocketJobsCollector()
+        result = c.collect_urls(broad_criteria, minimal_cfg)
+
+    assert result.job_url_count == 0
+    assert any(item.url.endswith("/oferta/react_dev") for item in result.needs_review_urls)
+
+
+def test_import_collected_urls_skips_irrelevant_job_offer_before_import() -> None:
+    from cv_sender.playwright_collection import import_collected_urls
+
+    result = PlaywrightCollectionResult(
+        source="justjoin",
+        collected_urls=[
+            PlaywrightCollectedUrl(
+                source="justjoin",
+                url="https://justjoin.it/job-offer/sprzedawca-kasjer",
+                relevance_decision="irrelevant",
+            )
+        ],
+    )
+
+    with patch("cv_sender.playwright_collection.import_offers_from_urls") as mock_import:
+        summary = import_collected_urls(result, auto_score=False)
+
+    mock_import.assert_not_called()
+    assert summary.imported_count == 0
+
+
+def test_import_collected_urls_imports_relevant_job_offer() -> None:
+    from cv_sender.playwright_collection import import_collected_urls
+
+    result = PlaywrightCollectionResult(
+        source="justjoin",
+        collected_urls=[
+            PlaywrightCollectedUrl(
+                source="justjoin",
+                url="https://justjoin.it/job-offer/senior-frontend-react",
+                relevance_decision="relevant",
+            )
+        ],
+    )
+
+    batch = BatchImportResult(
+        items=[
+            BatchImportItemResult(
+                url="https://justjoin.it/job-offer/senior-frontend-react",
+                status=ImportStatus.IMPORTED,
+                offer_id="o1",
+            )
+        ]
+    )
+    with patch("cv_sender.playwright_collection.import_offers_from_urls", return_value=batch) as mock_import:
+        summary = import_collected_urls(result, auto_score=False)
+
+    mock_import.assert_called_once()
+    assert summary.imported_count == 1
+
+
+def test_irrelevant_imported_offer_not_added_to_queue() -> None:
+    from cv_sender.playwright_collection import import_collected_urls
+    from cv_sender.relevance import RelevanceResult
+
+    criteria = JobSearchCriteria(
+        keywords=["React Developer"],
+        technologies=["React"],
+        locations=[],
+        seniority=[],
+        contract_types=[],
+        min_salary_b2b=0,
+        require_salary=False,
+        max_offers_per_source=10,
+        max_total_offers=10,
+        exclude_keywords=[],
+    )
+    result = PlaywrightCollectionResult(
+        source="rocketjobs",
+        collected_urls=[
+            PlaywrightCollectedUrl(
+                source="rocketjobs",
+                url="https://rocketjobs.pl/oferta-pracy/test-react",
+                relevance_decision="relevant",
+            )
+        ],
+    )
+
+    batch = BatchImportResult(
+        items=[
+            BatchImportItemResult(
+                url="https://rocketjobs.pl/oferta-pracy/test-react",
+                status=ImportStatus.IMPORTED,
+                offer_id="o-irrelevant",
+            )
+        ]
+    )
+    offer = Offer(
+        id="o-irrelevant",
+        source="rocketjobs",
+        url="https://rocketjobs.pl/oferta-pracy/test-react",
+        title="Test Offer",
+        decision=Decision.APPLY,
+    )
+    with (
+        patch("cv_sender.playwright_collection.import_offers_from_urls", return_value=batch),
+        patch("cv_sender.storage.get_offer_by_id", return_value=offer),
+        patch("cv_sender.playwright_collection.match_offer_relevance", return_value=RelevanceResult(decision="irrelevant")),
+        patch("cv_sender.apply_queue.build_apply_queue_from_offers") as mock_build_queue,
+    ):
+        import_collected_urls(result, auto_score=False, criteria=criteria, add_to_queue=True)
+
+    mock_build_queue.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

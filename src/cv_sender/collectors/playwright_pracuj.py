@@ -11,7 +11,7 @@ import re
 from urllib.parse import quote, urlparse
 
 from cv_sender.collectors.base import JobSearchCriteria
-from cv_sender.collectors.playwright_base import PlaywrightJobCollector
+from cv_sender.collectors.playwright_base import PlaywrightJobCollector, classify_collected_url
 
 # Pracuj offer URLs have a slug followed by comma or semicolon and an offer ID/type
 # e.g. https://www.pracuj.pl/praca/react-developer,oferta,1234567890
@@ -50,7 +50,7 @@ class PlaywrightPracujCollector(PlaywrightJobCollector):
         return unique or ["https://www.pracuj.pl/praca"]
 
     def is_job_url(self, url: str) -> bool:
-        return bool(_JOB_URL_RE.match(url))
+        return classify_collected_url(self.source, url).type == "job_offer"
 
     def normalize_job_url(self, url: str) -> str:
         parsed = urlparse(url)

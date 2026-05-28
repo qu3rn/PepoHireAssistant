@@ -6,7 +6,7 @@ import re
 from urllib.parse import quote_plus, urlparse
 
 from cv_sender.collectors.base import JobSearchCriteria
-from cv_sender.collectors.playwright_base import PlaywrightJobCollector
+from cv_sender.collectors.playwright_base import PlaywrightJobCollector, classify_collected_url
 
 _JOB_URL_RE = re.compile(
     r"https?://(?:www\.)?justjoin\.it/(?:offers?|job-offers?|listing)/",
@@ -42,7 +42,7 @@ class PlaywrightJustJoinCollector(PlaywrightJobCollector):
         return unique or ["https://justjoin.it/job-offers"]
 
     def is_job_url(self, url: str) -> bool:
-        return bool(_JOB_URL_RE.match(url))
+        return classify_collected_url(self.source, url).type == "job_offer"
 
     def normalize_job_url(self, url: str) -> str:
         parsed = urlparse(url)
