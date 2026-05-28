@@ -683,6 +683,84 @@ def debug_playwright_collectors(
     rprint("\n[dim]Note: debug-playwright-collectors does NOT import any offers.[/dim]")
 
 
+@app.command(name="debug-playwright-source")
+def debug_playwright_source(
+    source: str = typer.Option(..., "--source", help="Single source to debug: rocketjobs | justjoin | pracuj | nofluffjobs"),
+    keyword: str = typer.Option("React", "--keyword", help="Keyword/query for listing URL generation."),
+    headless: str = typer.Option("false", "--headless", help="Run browser in headless mode (true/false)."),
+    max_scrolls: int = typer.Option(5, "--max-scrolls", help="Maximum scroll attempts."),
+    listing_url: str | None = typer.Option(None, "--listing-url", help="Optional custom listing URL override."),
+    save_html: bool = typer.Option(False, "--save-html", help="Save html_preview.html."),
+    save_screenshot: bool = typer.Option(True, "--save-screenshot", help="Save initial and post-scroll screenshots."),
+    save_trace: bool = typer.Option(False, "--save-trace", help="Save Playwright trace.zip when supported."),
+) -> None:
+    """Run detailed Playwright debugger for one source without importing offers."""
+    from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415
+    from cv_sender.config import load_settings  # noqa: PLC0415
+    from cv_sender.playwright_collection import debug_collect_source  # noqa: PLC0415
+
+    settings = load_settings()
+    base = JobSearchCriteria.from_config(settings.job_search)
+    criteria = JobSearchCriteria(
+        keywords=[keyword] if keyword else list(base.keywords),
+        technologies=list(base.technologies),
+        locations=list(base.locations),
+        seniority=list(base.seniority),
+        contract_types=list(base.contract_types),
+        min_salary_b2b=base.min_salary_b2b,
+        require_salary=base.require_salary,
+        max_offers_per_source=base.max_offers_per_source,
+        max_total_offers=base.max_total_offers,
+        exclude_keywords=list(base.exclude_keywords),
+        request_delay_seconds=base.request_delay_seconds,
+    )
+
+    def _parse_bool(value: str) -> bool:
+        val = (value or "").strip().lower()
+        if val in {"1", "true", "yes", "y", "on"}:
+            return True
+        if val in {"0", "false", "no", "n", "off", ""}:
+            return False
+        raise ValueError(f"Invalid boolean value: {value!r}")
+
+    try:
+        headless_bool = _parse_bool(headless)
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    try:
+        report = debug_collect_source(
+            source=source,
+            criteria=criteria,
+            listing_url=listing_url,
+            headless=headless_bool,
+            max_scrolls=max_scrolls,
+            save_html=save_html,
+            save_screenshot=save_screenshot,
+            save_trace=save_trace,
+        )
+    except Exception as exc:  # noqa: BLE001
+        rprint(f"[red]Debug run failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    rprint("\n[bold]Playwright debug complete[/bold]")
+    rprint(f"Source: {report.source}")
+    rprint(f"Listing URL: {report.listing_url}")
+    rprint(f"Final URL: {report.final_url_after_redirect}")
+    rprint(f"Page title: {report.page_title}")
+    rprint(f"Links before/after scroll: {report.links_before_scroll}/{report.links_after_scroll}")
+    rprint(f"Counts: {report.summary_counts}")
+    if report.warnings:
+        for warning in report.warnings:
+            rprint(f"[yellow]Warning:[/yellow] {warning}")
+    if report.errors:
+        for err in report.errors:
+            rprint(f"[red]Error:[/red] {err}")
+    rprint(f"Suggested next fix: {report.suggested_next_fix}")
+    rprint(f"Debug files: {report.debug_dir}")
+
+
 # ---------------------------------------------------------------------------
 # build-queue
 # ---------------------------------------------------------------------------
