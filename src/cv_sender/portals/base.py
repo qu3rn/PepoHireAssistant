@@ -19,6 +19,7 @@ from cv_sender.form_debug import (
     snapshot_form,
 )
 from cv_sender.models import FillResult, FillStatus, Offer
+from cv_sender.playwright_helpers import handle_common_modals
 
 # ---------------------------------------------------------------------------
 # Consent keyword lists
@@ -122,6 +123,24 @@ class BasePortalFiller(ABC):
                 _page = page
                 self._step_log.log("open_url", target=offer.url)
                 navigate(page, offer.url)
+
+                modal_result = handle_common_modals(page, self.settings, context="form_filling")
+                for action in modal_result.actions_taken:
+                    self._step_log.log(
+                        f"modal_{action.type}",
+                        target=action.selector_or_text,
+                        status=action.status,
+                        message=action.message,
+                    )
+                for warning in modal_result.warnings:
+                    result.warnings.append(warning)
+                    self._step_log.log("modal_warning", status="skipped", message=warning)
+
+                if modal_result.blocked_by_captcha:
+                    raise RuntimeError("CAPTCHA detected. Manual action required.")
+                if modal_result.blocked_by_login:
+                    raise RuntimeError("Login wall detected. Manual login required.")
+
                 self.fill_form(page)
                 self._step_log.log("stop_before_submit", message="Auto-submit disabled; form left for manual review.")
                 self._finalize_status()
@@ -178,6 +197,7 @@ class BasePortalFiller(ABC):
         """
         with browser_session(headless=self.headless) as (page, _browser):
             navigate(page, url)
+            handle_common_modals(page, self.settings, context="form_filling")
             self.fill_form(page)
             self._print_review_prompt()
             if wait_for_review:

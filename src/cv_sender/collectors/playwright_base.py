@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover
 from pydantic import BaseModel, Field
 
 from cv_sender.collectors.base import JobSearchCriteria
+from cv_sender.playwright_helpers import handle_common_modals
 from cv_sender.relevance import EmergencyReactMode, match_offer_relevance
 
 if TYPE_CHECKING:
@@ -95,6 +96,8 @@ class PlaywrightCollectionResult(BaseModel):
     duplicate_count: int = 0
     failed_count: int = 0
     warnings: list[str] = Field(default_factory=list)
+    modal_actions: list[str] = Field(default_factory=list)
+    modal_warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     debug_artifacts: list[str] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -462,10 +465,13 @@ class PlaywrightJobCollector(ABC):
         user_agent = getattr(cfg, "user_agent", None)
 
         emergency_mode = EmergencyReactMode()
+        modal_settings: Any = None
         try:
             from cv_sender.config import load_settings  # noqa: PLC0415
 
-            em_cfg = load_settings().job_search.emergency_react_mode
+            settings = load_settings()
+            em_cfg = settings.job_search.emergency_react_mode
+            modal_settings = settings
             emergency_mode = EmergencyReactMode(
                 enabled=bool(em_cfg.enabled),
                 accept_needs_review=bool(em_cfg.accept_needs_review),
@@ -515,6 +521,7 @@ class PlaywrightJobCollector(ABC):
                             cfg=cfg,
                             criteria=criteria,
                             emergency_mode=emergency_mode,
+                            modal_settings=modal_settings,
                         )
                         all_raw_links.extend(all_page_hrefs)
                         all_extracted_links.extend(all_page_hrefs)
@@ -568,6 +575,7 @@ class PlaywrightJobCollector(ABC):
         cfg: Any,
         criteria: JobSearchCriteria,
         emergency_mode: EmergencyReactMode,
+        modal_settings: Any,
     ) -> tuple[list[str], list[str], list[str], str]:
         """Navigate to *listing_url*, scroll, extract links, and populate *result*.
 
@@ -577,6 +585,22 @@ class PlaywrightJobCollector(ABC):
 
         page.goto(listing_url, wait_until="domcontentloaded")
         page.wait_for_load_state("networkidle", timeout=10_000)
+
+        modal_result = handle_common_modals(page, modal_settings, context="collection")
+        for action in modal_result.actions_taken:
+            result.modal_actions.append(f"{self.source}:{action.type}:{action.status}:{action.selector_or_text}")
+        for warning in modal_result.warnings:
+            result.modal_warnings.append(warning)
+            result.warnings.append(f"{self.source}: {warning}")
+
+        if modal_result.blocked_by_captcha:
+            warning = f"{self.source}: captcha detected at {listing_url}. Cannot collect."
+            artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, [], page, cfg)
+            return [], [], artifacts, warning
+        if modal_result.blocked_by_login:
+            warning = f"{self.source}: login wall detected at {listing_url}. Cannot collect."
+            artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, [], page, cfg)
+            return [], [], artifacts, warning
 
         # Check for blocked/CAPTCHA/login pages
         page_text = ""

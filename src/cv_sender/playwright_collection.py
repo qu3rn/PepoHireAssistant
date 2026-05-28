@@ -260,6 +260,8 @@ def collect_import_and_score_with_playwright(
             )
         )
         global_warnings.extend(result.warnings)
+        if getattr(result, "modal_actions", None):
+            global_warnings.extend([f"{result.source}: modal_action {a}" for a in result.modal_actions])
         if import_summary.errors:
             global_warnings.extend(import_summary.errors)
 

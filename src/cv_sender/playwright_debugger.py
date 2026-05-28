@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from cv_sender.collectors.base import JobSearchCriteria
 from cv_sender.collectors.playwright_base import classify_collected_url, classify_page
+from cv_sender.playwright_helpers import handle_common_modals
 from cv_sender.relevance import EmergencyReactMode, match_offer_relevance
 
 try:
@@ -83,6 +84,9 @@ class PlaywrightCollectorDebugReport(BaseModel):
     links_after_scroll: int = 0
     new_links_per_scroll: list[int] = Field(default_factory=list)
     detected_cookie_banner: bool = False
+    cookie_banner_handled: bool = False
+    modal_actions: list[str] = Field(default_factory=list)
+    modal_warnings: list[str] = Field(default_factory=list)
     detected_login_wall: bool = False
     detected_captcha: bool = False
     detected_blocked_page: bool = False
@@ -535,6 +539,17 @@ def debug_collect_source(
     new_links_per_scroll: list[int] = []
     stopped_reason = "max_scrolls_reached"
     scroll_count = 0
+    modal_actions: list[str] = []
+    modal_warnings: list[str] = []
+    cookie_banner_handled = False
+    modal_settings: Any = None
+
+    try:
+        from cv_sender.config import load_settings  # noqa: PLC0415
+
+        modal_settings = load_settings()
+    except Exception:  # noqa: BLE001
+        modal_settings = None
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless)
@@ -551,6 +566,33 @@ def debug_collect_source(
             page.set_default_timeout(page_timeout_ms)
             page.goto(selected_listing_url, wait_until="domcontentloaded")
             page.wait_for_load_state("networkidle", timeout=min(page_timeout_ms, 12000))
+
+            modal_result = handle_common_modals(page, modal_settings, context="debug")
+            modal_actions = [
+                f"{a.type}:{a.status}:{a.selector_or_text}"
+                for a in modal_result.actions_taken
+            ]
+            modal_warnings = list(modal_result.warnings)
+            cookie_banner_handled = any(
+                a.type in {"cookie_accept", "cookie_reject", "cookie_close"} and a.status == "success"
+                for a in modal_result.actions_taken
+            )
+            warnings.extend(modal_result.warnings)
+
+            if modal_result.blocked_by_captcha:
+                warnings.append("CAPTCHA detected; debug run stopped without bypass.")
+                stopped_reason = "blocked_by_captcha"
+            if modal_result.blocked_by_login:
+                warnings.append("Login wall detected; debug run stopped without bypass.")
+                stopped_reason = "blocked_by_login"
+
+            if modal_result.blocked_by_captcha or modal_result.blocked_by_login:
+                final_url = page.url
+                page_title = page.title() or ""
+                user_agent = str(page.evaluate("() => navigator.userAgent") or "")
+                body_text = page.inner_text("body") or ""
+                raw_html = page.content() or ""
+                raise RuntimeError("Protected page detected; stopped safely.")
 
             final_url = page.url
             page_title = page.title() or ""
@@ -667,6 +709,9 @@ def debug_collect_source(
         links_after_scroll=len(all_links_after_scroll),
         new_links_per_scroll=new_links_per_scroll,
         detected_cookie_banner=detected_cookie_banner,
+        cookie_banner_handled=cookie_banner_handled,
+        modal_actions=modal_actions,
+        modal_warnings=modal_warnings,
         detected_login_wall=detected_login_wall,
         detected_captcha=detected_captcha,
         detected_blocked_page=detected_blocked_page,
