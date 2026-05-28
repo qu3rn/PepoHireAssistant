@@ -1,84 +1,5 @@
 [
   {
-    "run_id": "a6c6b32f-b673-4e33-b2de-3bba61bf8b2d",
-    "started_at": "2026-05-27T22:21:43.992050Z",
-    "finished_at": "2026-05-27T22:21:45.470899Z",
-    "criteria": {
-      "keywords": [
-        "React Developer",
-        "Frontend Developer",
-        "Frontend Engineer"
-      ],
-      "technologies": [
-        "React",
-        "TypeScript",
-        "Next.js"
-      ],
-      "locations": [
-        "Remote",
-        "Poland"
-      ],
-      "min_salary_b2b": 0,
-      "require_salary": false,
-      "exclude_keywords": []
-    },
-    "source_summaries": [
-      {
-        "source": "justjoin",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "rocketjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      },
-      {
-        "source": "nofluffjobs",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 1.48
-      },
-      {
-        "source": "pracuj",
-        "status": "partial",
-        "raw_found_count": 0,
-        "found_count": 0,
-        "accepted_count": 0,
-        "duplicate_count": 0,
-        "rejected_count": 0,
-        "failed_count": 0,
-        "error": "source returned 0 raw results",
-        "duration_seconds": 0.0
-      }
-    ],
-    "decisions": [],
-    "global_warnings": [],
-    "suggestions": [
-      "No offers were collected. Check that the selected sources are reachable."
-    ]
-  },
-  {
     "run_id": "f7e65fd0-be71-4962-b8fd-db5c19e20135",
     "started_at": "2026-05-27T22:28:07.369018Z",
     "finished_at": "2026-05-27T22:28:07.371126Z",
@@ -1109,6 +1030,199 @@
     "global_warnings": [
       "justjoin: modal_action justjoin:none:skipped:no_modal_action",
       "justjoin: modal_action justjoin:none:skipped:no_modal_action"
+    ],
+    "suggestions": []
+  },
+  {
+    "run_id": "38da8701-6569-438e-849f-9c4ed8aadf94",
+    "started_at": "2026-05-28T12:45:36.303512Z",
+    "finished_at": "2026-05-28T12:46:57.861096Z",
+    "criteria": {
+      "keywords": [
+        "React Developer",
+        "Frontend Developer",
+        "Frontend Engineer"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript",
+        "Next.js"
+      ],
+      "locations": [
+        "Remote",
+        "Poland"
+      ],
+      "seniority": [
+        "Mid",
+        "Senior"
+      ],
+      "contract_types": [
+        "B2B",
+        "UoP"
+      ],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "collector_mode": "playwright",
+      "mode": "playwright_collect_import",
+      "sources": [
+        "justjoin",
+        "rocketjobs",
+        "nofluffjobs",
+        "pracuj"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 1673,
+        "job_offer_url_count": 50,
+        "found_count": 50,
+        "imported_count": 0,
+        "skipped_count": 3,
+        "accepted_count": 0,
+        "duplicate_count": 181,
+        "rejected_count": 1623,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 20.2
+      },
+      {
+        "source": "rocketjobs",
+        "collector_used": "playwright",
+        "status": "partial",
+        "raw_found_count": 1003,
+        "job_offer_url_count": 31,
+        "found_count": 31,
+        "imported_count": 0,
+        "skipped_count": 31,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 972,
+        "failed_count": 0,
+        "error": "rocketjobs listing https://rocketjobs.pl/oferty-pracy?q=frontend-developer: Timeout 10000ms exceeded.\n=========================== logs ===========================\n\"load\" event fired\n============================================================; rocketjobs listing https://rocketjobs.pl/oferty-pracy?q=frontend-engineer: Timeout 10000ms exceeded.\n=========================== logs ===========================\n\"load\" event fired\n============================================================",
+        "duration_seconds": 39.52
+      },
+      {
+        "source": "nofluffjobs",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 490,
+        "job_offer_url_count": 50,
+        "found_count": 50,
+        "imported_count": 0,
+        "skipped_count": 29,
+        "accepted_count": 0,
+        "duplicate_count": 106,
+        "rejected_count": 440,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 17.59
+      },
+      {
+        "source": "pracuj",
+        "collector_used": "playwright",
+        "status": "ok",
+        "raw_found_count": 404,
+        "job_offer_url_count": 50,
+        "found_count": 50,
+        "imported_count": 0,
+        "skipped_count": 41,
+        "accepted_count": 0,
+        "duplicate_count": 64,
+        "rejected_count": 354,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 4.25
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [
+      "justjoin: skipped 3 job_offer URL(s) by relevance filter before import.",
+      "https://justjoin.it/job-offer/devapo-react-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/bluesoft-react-developer-warszawa-javascript-8ab410fd: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/infakt-react-developer-krakow-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/itlt-react-native-developer-warszawa-mobile: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/do-ok-life-changing-software-services-react-native-developer-wroclaw-mobile-2470e7f5: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/dealsy-sp-z-o-o--react-native-developer-warszawa-mobile-9df81d73: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/b2bnetwork-react-native-developer-warszawa-mobile: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/antal-sp-z-o-o--frontend-developer-react-krakow-ux: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/gmi-software-react-native-developer-warszawa-mobile-ba6b1590: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/emagine-polska-senior-react-developer-krakow-javascript-5c5031ea: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/pko-bp-finat-java-react-developer-warszawa-java: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/link-group-senior-frontend-react-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/inspeerity-senior-frontend-developer-react--warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/inspeerity-senior-react-native-developer-warszawa-mobile: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/experis-manpower-group-front-end-react-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/the-codest-senior-react-developer-krakow-javascript-e601bdf4: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/do-ok-life-changing-software-services-senior-react-native-developer-wroclaw-mobile: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/billennium-react-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/sni-react-developer-krakow-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/connectis-fullstack-developer-net-react--warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/codepole-fullstack-react-node-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/silk-software-house-mid-frontend-developer-react--warszawa-javascript-24e78592: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/unwaste-prosta-spolka-akcyjna-fullstack-react-next-js-developer-krakow-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/altimetrik-poland-fullstack-developer-python-react--krakow-python: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/fabrity-s-a--frontend-developer-react-typescript--warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/future-processing-senior-net-developer-react--gliwice-net: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/p-p-solutions-senior-frontend-developer-react-aws--warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/silk-software-house-senior-frontend-developer-react--warszawa-javascript-cd19ea13: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/rits-professional-services-fullstack-developer-net-react--wroclaw-net-11aab527: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/cerebre-senior-frontend-developer-react--poznan-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/b2bnetwork-developer-experience-portal-nodejs-react--warszawa-ux: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/link-group-frontend-developer-lublin-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/mindpal-frontend-developer-gliwice-javascript-7c386a0b: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/codewave-frontend-developer-wroclaw-javascript-e9ac5333: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/altimi-frontend-developer-wroclaw-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/iig-sp-z-o-o--frontend-developer-gdansk-javascript-e68dfa32: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/emagine-polska-frontend-developer--lodz-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/antal-sp-z-o-o--frontend-developer-warszawa-javascript-aeb15098: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/scalo-frontend-developer-katowice-javascript-e6bbb3e8: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/infakt-frontend-developer-krakow-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/ingenious-build-middle-frontend-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/antal-sp-z-o-o--mode2-frontend-developer-krakow-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/link-group-senior-frontend-developer-warszawa-javascript-bd3a8eec: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/dcg-senior-frontend-developer-gdansk-javascript-35c0d942: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/s3-connected-health-senior-frontend-developer-wroclaw-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/tylko-senior-frontend-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "https://justjoin.it/job-offer/emagine-polska-lead-frontend-developer-warszawa-javascript: An offer with this URL already exists in storage.",
+      "rocketjobs listing https://rocketjobs.pl/oferty-pracy?q=frontend-developer: Timeout 10000ms exceeded.\n=========================== logs ===========================\n\"load\" event fired\n============================================================",
+      "rocketjobs listing https://rocketjobs.pl/oferty-pracy?q=frontend-engineer: Timeout 10000ms exceeded.\n=========================== logs ===========================\n\"load\" event fired\n============================================================",
+      "rocketjobs: skipped 31 job_offer URL(s) by relevance filter before import.",
+      "nofluffjobs: skipped 29 job_offer URL(s) by relevance filter before import.",
+      "https://nofluffjobs.com/job/senior-fullstack-developer-net-react-link-group-warszawa-3: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-backend-oriented-fullstack-developer-node-net-react-adaptiq-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-react-native-developer-iteamly-warszawa: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-native-mobile-developer-e-mobility-energy-spyrosoft-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/programista-frontend-programistka-frontend-react-astek-polska-warszawa: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-full-stack-developer-react-node-js-green-minds-remote-1: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-developer-wakacje-pl-gdansk: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-frontend-developer-iteamly-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-software-developer-react-branza-e-commerce-edge-one-solutions-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-developer-react-antal-krakow: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-fullstack-developer-with-java-and-react-dcg-gdynia: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/mid-fullstack-developer-net-react-euvic-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-software-developer-react-js-node-js-cdq-poland-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/fullstack-developer-react-node-js-ai-fintech-green-minds-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-full-stack-developer-react-node-js-green-minds-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/react-developer-f-m-x-sii-polska-poznan: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-developer-react-mindpal-gliwice: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/full-stack-developer-node-js-react-capgemini-polska-krakow: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-fullstack-developer-python-and-react-iteamly-remote: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/senior-frontend-engineer-react-ai-llm-j-labs-software-specialist-cracow-1: An offer with this URL already exists in storage.",
+      "https://nofluffjobs.com/job/frontend-engineer-react-vibe-coding-acaisoft-remote: An offer with this URL already exists in storage.",
+      "pracuj: skipped 41 job_offer URL(s) by relevance filter before import.",
+      "https://www.pracuj.pl/praca/senior-react-front-end-developer-platform-integration-and-design-systems-warszawa,oferta,1004865959: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/frontend-developer-react-angular-wcag-eaa-compliance-poznan-wozna-14,oferta,1004858432: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/expert-react-frontend-developer-devops-analytics-krakow,oferta,1004858016: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/frontend-developer-react-%2b-three-js-r3f-poznan-zwierzyniecka-3,oferta,1004854025: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/frontend-developer-react-typescript-warszawa,oferta,1004857381: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/frontend-developer-with-react-f-m-x-warszawa-aleja-niepodleglosci-69,oferta,1004850686: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/frontend-software-developer-react-branza-e-commerce-warszawa,oferta,1004806810: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/senior-fullstack-developer-react-typescript-node-%2b-ai-coding-warszawa-nowowiejska-15-19,oferta,1004822649: An offer with this URL already exists in storage.",
+      "https://www.pracuj.pl/praca/senior-front-end-developer-react-next-gdansk,oferta,1004848926: An offer with this URL already exists in storage."
     ],
     "suggestions": []
   }
