@@ -404,6 +404,16 @@ def import_offers_from_urls(
     return result
 
 
+def sync_all_queue_items_from_offers() -> int:
+    """Refresh all rapid-apply queue snapshots from current offers.
+
+    Returns the number of queue items updated.
+    """
+    from cv_sender.apply_queue import sync_all_queue_items_from_offers as _sync_all  # noqa: PLC0415
+
+    return _sync_all()
+
+
 # ---------------------------------------------------------------------------
 # Application helpers
 # ---------------------------------------------------------------------------

@@ -150,6 +150,16 @@ def test_re_normalize_offers_cleans_existing_titles() -> None:
     assert stored.company == "ACME"
 
 
+def test_sync_all_queue_items_from_offers_delegates_to_apply_queue() -> None:
+    from cv_sender.services import sync_all_queue_items_from_offers
+
+    with patch("cv_sender.apply_queue.sync_all_queue_items_from_offers", return_value=3) as mock_sync:
+        changed = sync_all_queue_items_from_offers()
+
+    assert changed == 3
+    mock_sync.assert_called_once_with()
+
+
 # ---------------------------------------------------------------------------
 # score_offer_by_id
 # ---------------------------------------------------------------------------
