@@ -1,5 +1,7 @@
 # PepoHireAssistant / cv-sender
 
+!IMPORTANT THIS IS JUST MVP SKETCH!
+
 A **local** job application assistant that helps you semi-automatically apply to job offers.  
 It evaluates offers, stores your application history, opens job pages in a real browser, fills forms with your profile data, uploads your CV, and **stops before the final submit** so you can review everything manually.
 
