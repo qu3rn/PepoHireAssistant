@@ -51,6 +51,8 @@ class Offer(BaseModel):
     salary_min: float | None = None
     salary_max: float | None = None
     currency: str = "PLN"
+    salary_raw_text: str = ""
+    salary_confidence: float = 0.0
     contract: str = ""
     location: str = ""
     description: str = ""
@@ -64,6 +66,58 @@ class Offer(BaseModel):
     extraction_source: str = ""
     extraction_confidence: float = 0.0
     extraction_warnings: list[str] = Field(default_factory=list)
+
+
+class OfferCompletenessResult(BaseModel):
+    """Summary of how complete an offer record is for scoring and filling."""
+
+    is_incomplete: bool
+    missing_fields: list[str] = Field(default_factory=list)
+    weak_fields: list[str] = Field(default_factory=list)
+    score: int = 0
+    reasons: list[str] = Field(default_factory=list)
+
+
+class DeepExtractionStatus(StrEnum):
+    UPDATED = "updated"
+    SKIPPED_COMPLETE = "skipped_complete"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    NO_CHANGE = "no_change"
+
+
+class DeepExtractionResult(BaseModel):
+    offer_id: str
+    url: str = ""
+    source: str = ""
+    status: DeepExtractionStatus = DeepExtractionStatus.NO_CHANGE
+    fields_before: dict[str, object] = Field(default_factory=dict)
+    fields_after: dict[str, object] = Field(default_factory=dict)
+    fields_updated: list[str] = Field(default_factory=list)
+    missing_fields_remaining: list[str] = Field(default_factory=list)
+    extractor_used: str = ""
+    warnings: list[str] = Field(default_factory=list)
+    error: str = ""
+
+
+class DeepExtractionBatchResult(BaseModel):
+    results: list[DeepExtractionResult] = Field(default_factory=list)
+
+    @property
+    def updated_count(self) -> int:
+        return sum(1 for result in self.results if result.status == DeepExtractionStatus.UPDATED)
+
+    @property
+    def skipped_complete_count(self) -> int:
+        return sum(1 for result in self.results if result.status == DeepExtractionStatus.SKIPPED_COMPLETE)
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for result in self.results if result.status == DeepExtractionStatus.FAILED)
+
+    @property
+    def blocked_count(self) -> int:
+        return sum(1 for result in self.results if result.status == DeepExtractionStatus.BLOCKED)
 
 
 # ---------------------------------------------------------------------------

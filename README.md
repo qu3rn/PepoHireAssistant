@@ -205,6 +205,63 @@ URLs beyond the limit are marked `skipped_limit`.
 > **Some sites may block automated page fetching.**  
 > If you later add scraping/extraction, be aware that many job boards use bot detection, CAPTCHAs, and login walls. Never bypass these protections.
 
+## Deep offer extraction
+
+Deep extraction enriches shallow offers after URL import by opening the individual offer page and extracting missing details.
+
+### What it fills
+
+- Title and company (with slug/quality cleanup)
+- Salary text and normalized salary range
+- Location and contract
+- Technologies / stack tags
+- Fuller description text
+
+After successful updates, the app re-scores the offer and syncs queue snapshots from the updated offer record.
+
+### When it runs
+
+- Manually from the **Offers** page:
+  - **Deep extract selected**
+  - **Deep extract current page missing details**
+  - **Deep extract all filtered missing details**
+- Manually per offer in the offer expander: **Deep extract details**
+- From **Rapid Apply** when an offer is incomplete: **Deep extract before filling**
+- Optionally from **Rapid Apply Queue** tab: **Deep extract queued incomplete offers**
+
+### Run manually from CLI
+
+```bash
+# Deep extract all incomplete offers
+cv-sender deep-extract-offers --all
+
+# Deep extract specific offers
+cv-sender deep-extract-offers --offer-id <offer_id_1> --offer-id <offer_id_2>
+
+# Force stronger overwrite rules
+cv-sender deep-extract-offers --all --force
+```
+
+### Safety limitations
+
+- Never auto-submits applications.
+- Never bypasses CAPTCHA, login walls, or bot protections.
+- If blocking is detected, extraction is marked as blocked and stops.
+
+### Debug artifacts
+
+Each run stores debug data under:
+
+`data/debug/deep_extraction/<run_id>/<offer_id>/`
+
+Files:
+
+- `metadata.json`
+- `screenshot.png` (when Playwright was used and screenshot succeeded)
+- `extracted_raw.json`
+- `normalized.json`
+- `merge_diff.json`
+
 ---
 
 ## Supported job boards

@@ -327,6 +327,7 @@ def _page_offers() -> None:
     st.title("Offers")
 
     settings = load_settings()
+    from cv_sender.deep_extraction import is_offer_incomplete  # noqa: PLC0415
 
     # --- Add offer manually ---
     with st.expander("➕ Add offer manually", expanded=False):
@@ -565,6 +566,77 @@ def _page_offers() -> None:
         filter_fn=_offer_filter_fn,
     )
 
+    # Deep extraction actions
+    with st.expander("🔎 Deep extraction (missing details)", expanded=False):
+        st.caption(
+            "Enrich shallow offers by opening the job page and extracting missing salary, "
+            "stack, location, contract, and description details."
+        )
+        deep_force = st.checkbox("Force merge on stronger extracted data", key=f"{_PFX}_deep_force")
+
+        current_page_incomplete = [o for o in result.items if is_offer_incomplete(o).is_incomplete]
+        all_filtered = build_list_result(
+            offers,
+            ListQuery(page=1, page_size=len(offers), sort_by=sort_by, sort_dir=_sort_dir),
+            search_fields=["title", "company", "location", "source", "technologies"],
+            filter_fn=_offer_filter_fn,
+        )
+        all_filtered_incomplete = [o for o in all_filtered.items if is_offer_incomplete(o).is_incomplete]
+
+        selected_options = {
+            f"{o.title} — {o.company or 'Unknown company'} ({o.id[:8]})": o.id
+            for o in result.items
+        }
+        selected_labels = st.multiselect(
+            "Select offers (current page)",
+            options=list(selected_options.keys()),
+            key=f"{_PFX}_deep_selected",
+        )
+        selected_ids = [selected_options[label] for label in selected_labels]
+
+        d1, d2, d3 = st.columns(3)
+        if d1.button("Deep extract selected", disabled=not selected_ids, key=f"{_PFX}_deep_selected_btn"):
+            with st.spinner(f"Deep extracting {len(selected_ids)} selected offer(s)…"):
+                batch = services.deep_extract_offers_service(
+                    selected_ids,
+                    force=deep_force,
+                    only_incomplete=not deep_force,
+                    max_offers=len(selected_ids),
+                )
+            st.success(
+                f"Updated: {batch.updated_count}, blocked: {batch.blocked_count}, "
+                f"failed: {batch.failed_count}, no-change/skipped: {len(batch.results) - batch.updated_count - batch.blocked_count - batch.failed_count}."
+            )
+            st.rerun()
+
+        if d2.button(
+            f"Deep extract current page missing details ({len(current_page_incomplete)})",
+            disabled=not current_page_incomplete,
+            key=f"{_PFX}_deep_current_btn",
+        ):
+            ids = [o.id for o in current_page_incomplete]
+            with st.spinner(f"Deep extracting {len(ids)} incomplete offer(s) from current page…"):
+                batch = services.deep_extract_offers_service(ids, force=deep_force, only_incomplete=not deep_force)
+            st.success(
+                f"Updated: {batch.updated_count}, blocked: {batch.blocked_count}, "
+                f"failed: {batch.failed_count}."
+            )
+            st.rerun()
+
+        if d3.button(
+            f"Deep extract all filtered missing details ({len(all_filtered_incomplete)})",
+            disabled=not all_filtered_incomplete,
+            key=f"{_PFX}_deep_filtered_btn",
+        ):
+            ids = [o.id for o in all_filtered_incomplete]
+            with st.spinner(f"Deep extracting {len(ids)} incomplete filtered offer(s)…"):
+                batch = services.deep_extract_offers_service(ids, force=deep_force, only_incomplete=not deep_force)
+            st.success(
+                f"Updated: {batch.updated_count}, blocked: {batch.blocked_count}, "
+                f"failed: {batch.failed_count}."
+            )
+            st.rerun()
+
     # Bulk select / delete on current page
     with st.expander("🗑️ Bulk actions (current page)", expanded=False):
         st.caption(
@@ -611,6 +683,20 @@ def _page_offers() -> None:
 
     for offer in result.items:
         with st.expander(f"**{offer.title}** — {offer.company}  |  score: {offer.score or '—'}  |  {offer.decision or '—'}"):
+            completeness = is_offer_incomplete(offer)
+            comp_cols = st.columns(2)
+            comp_cols[0].markdown(f"**Completeness score:** {completeness.score}/100")
+            if completeness.is_incomplete:
+                missing_text = ", ".join(completeness.missing_fields + completeness.weak_fields)
+                comp_cols[1].warning(f"Incomplete: {missing_text or 'details missing'}")
+            else:
+                comp_cols[1].success("Offer details look complete.")
+
+            if completeness.missing_fields:
+                st.caption("Missing fields: " + ", ".join(completeness.missing_fields))
+            if completeness.weak_fields:
+                st.caption("Weak fields: " + ", ".join(completeness.weak_fields))
+
             if offer.extraction_source == "url_slug_fallback":
                 st.warning("Title was inferred from a URL slug. Review the imported details.")
             c1, c2, c3 = st.columns(3)
@@ -639,7 +725,7 @@ def _page_offers() -> None:
                         for w in offer.extraction_warnings:
                             st.warning(w)
 
-            btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4)
+            btn_col1, btn_col2, btn_col3, btn_col4, btn_col5 = st.columns(5)
 
             if btn_col1.button("Re-score", key=f"rescore_{offer.id}"):
                 with st.spinner("Scoring…"):
@@ -665,6 +751,26 @@ def _page_offers() -> None:
                 with st.spinner("Opening browser and filling form…"):
                     result = services.fill_application_form(offer.id, selected_cv_id=_chosen_cv_id)
                 _render_fill_result(result, offer.id)
+
+            if btn_col5.button("Deep extract details", key=f"deep_offer_{offer.id}"):
+                with st.spinner("Deep extracting details from offer page…"):
+                    deep_result = services.deep_extract_offer_details_service(offer.id)
+                st.session_state[f"deep_result_{offer.id}"] = deep_result.model_dump(mode="json")
+                if str(deep_result.status) == "updated":
+                    st.success(f"Deep extraction updated: {', '.join(deep_result.fields_updated) or 'fields improved'}")
+                    st.rerun()
+                elif str(deep_result.status) == "blocked":
+                    st.warning("Extraction blocked by login/CAPTCHA protections. No bypass attempted.")
+                else:
+                    st.info(f"Deep extraction status: {deep_result.status}")
+
+            _deep_prev = st.session_state.get(f"deep_result_{offer.id}")
+            if _deep_prev:
+                st.caption(
+                    "Last deep extraction: "
+                    + f"status={_deep_prev.get('status', '')}, "
+                    + f"updated={', '.join(_deep_prev.get('fields_updated', [])[:6]) or 'none'}"
+                )
 
             # CV selection expander (shown below buttons)
             _cv_profiles = services.list_cv_profiles()
@@ -1965,6 +2071,7 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
         get_session_stats,
     )
     from cv_sender.storage import get_offer_by_id, get_queue_item_by_id  # noqa: PLC0415
+    from cv_sender.deep_extraction import is_offer_incomplete  # noqa: PLC0415
 
     # ------------------------------------------------------------------ #
     # Session state bootstrap
@@ -2180,6 +2287,29 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
             st.markdown("**Match reasons:** " + " · ".join(current_item.reasons[:4]))
         if current_item.warnings:
             st.warning("⚠️ " + " · ".join(current_item.warnings[:3]))
+
+        if display_offer:
+            rapid_comp = is_offer_incomplete(display_offer)
+            important_missing = [
+                field
+                for field in (rapid_comp.missing_fields + rapid_comp.weak_fields)
+                if field in {"salary", "normalized_salary", "technologies", "description", "location", "contract"}
+            ]
+            if rapid_comp.is_incomplete and important_missing:
+                human_missing = ", ".join(dict.fromkeys(important_missing))
+                st.warning(f"Offer details are incomplete: {human_missing}.")
+                if st.button("Deep extract before filling", key=f"ra_deep_extract_{current_item.id}"):
+                    with st.spinner("Deep extracting offer details before filling…"):
+                        deep_res = services.deep_extract_offer_details_service(display_offer.id)
+                    if str(deep_res.status) == "updated":
+                        st.success("Deep extraction updated the offer. Queue snapshot refreshed.")
+                    elif str(deep_res.status) == "blocked":
+                        st.warning("Deep extraction was blocked by login/CAPTCHA protections.")
+                    elif str(deep_res.status) == "failed":
+                        st.error(deep_res.error or "Deep extraction failed.")
+                    else:
+                        st.info(f"Deep extraction status: {deep_res.status}")
+                    st.rerun()
 
     # ------------------------------------------------------------------ #
     # Show fill result if available
@@ -3218,6 +3348,32 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     synced = services.sync_all_queue_items_from_offers()
                 st.success(f"Synced {synced} queue item(s) from offers.")
                 if synced:
+                    st.rerun()
+
+            if st.button("Deep extract queued incomplete offers"):
+                from cv_sender.deep_extraction import is_offer_incomplete  # noqa: PLC0415
+                from cv_sender.storage import get_offer_by_id  # noqa: PLC0415
+
+                queue_snapshot = load_apply_queue()
+                queued_ids = []
+                for item in queue_snapshot:
+                    offer_obj = get_offer_by_id(item.offer_id)
+                    if offer_obj is None:
+                        continue
+                    if is_offer_incomplete(offer_obj).is_incomplete:
+                        queued_ids.append(offer_obj.id)
+
+                if not queued_ids:
+                    st.info("No incomplete queued offers found.")
+                else:
+                    with st.spinner(f"Deep extracting {len(queued_ids)} queued incomplete offer(s)…"):
+                        batch = services.deep_extract_offers_service(
+                            queued_ids,
+                            only_incomplete=True,
+                        )
+                    st.success(
+                        f"Updated: {batch.updated_count}, blocked: {batch.blocked_count}, failed: {batch.failed_count}."
+                    )
                     st.rerun()
 
         queue = load_apply_queue()

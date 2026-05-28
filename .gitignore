@@ -35,6 +35,7 @@ data/applications.json
 data/email_matches.json
 data/interviews.json
 data/apply_queue.json
+data/*
 
 # Local config (keep example files)
 config/profile.yaml
