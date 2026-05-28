@@ -86,7 +86,7 @@ _PAGE_LABELS = {
     "Data Cleanup": "Data Cleanup",
 }
 
-st.sidebar.title("cv-sender")
+st.sidebar.title("Pepe - Assistant - Job")
 st.sidebar.markdown(
     """
     <style>
@@ -4942,7 +4942,6 @@ def _page_data_cleanup() -> None:  # noqa: PLR0912, PLR0915
 # ---------------------------------------------------------------------------
 
 if page == "Dashboard":
-    _page_dashboard()
     _page_dashboard()
 elif page == "Offers":
     _page_offers()
