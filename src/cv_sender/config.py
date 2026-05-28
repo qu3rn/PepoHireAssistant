@@ -81,8 +81,10 @@ class PlaywrightModalConfig(BaseModel):
     cookie_mode: str = "reject_optional"  # accept_all | reject_optional | close_only | disabled
     close_newsletters: bool = True
     close_generic_overlays: bool = True
-    max_attempts: int = 3
-    timeout_ms: int = 3000
+    max_attempts: int = 4
+    timeout_ms: int = 5000
+    retry_delay_ms: int = 750
+    screenshot_after_handling: bool = True
 
 
 class PlaywrightConfig(BaseModel):

@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover
 from pydantic import BaseModel, Field
 
 from cv_sender.collectors.base import JobSearchCriteria
-from cv_sender.playwright_helpers import handle_common_modals
+from cv_sender.playwright_helpers import detect_cookie_banner_visible, handle_common_modals
 from cv_sender.relevance import EmergencyReactMode, match_offer_relevance
 
 if TYPE_CHECKING:
@@ -98,6 +98,12 @@ class PlaywrightCollectionResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     modal_actions: list[str] = Field(default_factory=list)
     modal_warnings: list[str] = Field(default_factory=list)
+    modal_handler_called: bool = False
+    cookie_banner_visible_before: bool = False
+    cookie_banner_visible_after: bool = False
+    blocked_by_captcha: bool = False
+    blocked_by_login: bool = False
+    blocked_by_overlay: bool = False
     errors: list[str] = Field(default_factory=list)
     debug_artifacts: list[str] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -289,9 +295,13 @@ def _save_debug_artifacts(
     run_id: str,
     source: str,
     listing_url: str,
-    links: list[str],
+    links: list[str] | None,
     page: Any | None,
     cfg: Any,
+    *,
+    metadata: dict[str, Any] | None = None,
+    modal_actions: list[dict[str, Any]] | None = None,
+    screenshot_name: str = "screenshot_after_scroll.png",
 ) -> list[str]:
     """Save debug screenshots / HTML / links to the debug directory."""
     artifacts: list[str] = []
@@ -303,29 +313,33 @@ def _save_debug_artifacts(
         return artifacts
 
     # links.json
-    links_path = run_dir / "links.json"
-    try:
-        links_path.write_text(
-            json.dumps({"listing_url": listing_url, "links": links}, indent=2),
-            encoding="utf-8",
-        )
-        artifacts.append(str(links_path))
-    except OSError as exc:
-        logger.warning("Cannot write links.json: %s", exc)
+    if links is not None:
+        links_path = run_dir / "links.json"
+        try:
+            links_path.write_text(
+                json.dumps({"listing_url": listing_url, "links": links}, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            artifacts.append(str(links_path))
+        except OSError as exc:
+            logger.warning("Cannot write links.json: %s", exc)
 
     # metadata.json
     meta_path = run_dir / "metadata.json"
     try:
         meta_path.write_text(
             json.dumps(
-                {
+                metadata
+                or {
                     "run_id": run_id,
                     "source": source,
                     "listing_url": listing_url,
-                    "raw_link_count": len(links),
+                    "raw_link_count": len(links or []),
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
                 indent=2,
+                ensure_ascii=False,
+                default=str,
             ),
             encoding="utf-8",
         )
@@ -333,12 +347,23 @@ def _save_debug_artifacts(
     except OSError as exc:
         logger.warning("Cannot write metadata.json: %s", exc)
 
+    if modal_actions is not None:
+        modal_path = run_dir / "modal_actions.json"
+        try:
+            modal_path.write_text(
+                json.dumps(modal_actions, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            artifacts.append(str(modal_path))
+        except OSError as exc:
+            logger.warning("Cannot write modal_actions.json: %s", exc)
+
     if page is None:
         return artifacts
 
     # Screenshot
     if getattr(cfg, "save_debug_screenshots", True):
-        screenshot_path = run_dir / "screenshot.png"
+        screenshot_path = run_dir / screenshot_name
         try:
             page.screenshot(path=str(screenshot_path), full_page=False)
             artifacts.append(str(screenshot_path))
@@ -356,6 +381,46 @@ def _save_debug_artifacts(
             logger.warning("HTML preview failed: %s", exc)
 
     return artifacts
+
+
+def _summarize_modal_result(modal_result: Any) -> dict[str, Any]:
+    actions = list(getattr(modal_result, "actions_taken", []))
+    return {
+        "handler_called": bool(getattr(modal_result, "handler_called", False)),
+        "cookie_banner_visible_before": bool(getattr(modal_result, "cookie_banner_visible_before", False)),
+        "cookie_banner_visible_after": bool(getattr(modal_result, "cookie_banner_visible_after", False)),
+        "actions_count": len(actions),
+        "actions_success_count": sum(1 for action in actions if getattr(action, "status", "") == "success"),
+        "warnings": list(getattr(modal_result, "warnings", [])),
+    }
+
+
+def _modal_screenshot_enabled(settings: Any) -> bool:
+    if settings is None:
+        return True
+    if hasattr(settings, "playwright") and hasattr(settings.playwright, "modals"):
+        return bool(getattr(settings.playwright.modals, "screenshot_after_handling", True))
+    if hasattr(settings, "modals"):
+        return bool(getattr(settings.modals, "screenshot_after_handling", True))
+    if isinstance(settings, dict):
+        return bool(settings.get("screenshot_after_handling", True))
+    return True
+
+
+def _merge_modal_result(result: PlaywrightCollectionResult, source: str, modal_result: Any) -> None:
+    result.modal_handler_called = result.modal_handler_called or bool(getattr(modal_result, "handler_called", False))
+    result.cookie_banner_visible_before = result.cookie_banner_visible_before or bool(
+        getattr(modal_result, "cookie_banner_visible_before", False)
+    )
+    result.cookie_banner_visible_after = bool(getattr(modal_result, "cookie_banner_visible_after", False))
+    result.blocked_by_captcha = result.blocked_by_captcha or bool(getattr(modal_result, "blocked_by_captcha", False))
+    result.blocked_by_login = result.blocked_by_login or bool(getattr(modal_result, "blocked_by_login", False))
+    result.blocked_by_overlay = result.blocked_by_overlay or bool(getattr(modal_result, "blocked_by_overlay", False))
+    for action in getattr(modal_result, "actions_taken", []):
+        result.modal_actions.append(f"{source}:{action.type}:{action.status}:{action.selector_or_text}")
+    for warning in getattr(modal_result, "warnings", []):
+        result.modal_warnings.append(warning)
+        result.warnings.append(f"{source}: {warning}")
 
 
 # ---------------------------------------------------------------------------
@@ -584,22 +649,113 @@ class PlaywrightJobCollector(ABC):
         logger.info("Playwright: opening %s → %s", self.source, listing_url)
 
         page.goto(listing_url, wait_until="domcontentloaded")
-        page.wait_for_load_state("networkidle", timeout=10_000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=10_000)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            page.wait_for_timeout(400)
+        except Exception:  # noqa: BLE001
+            pass
 
+        if getattr(cfg, "save_debug_screenshots", True):
+            _save_debug_artifacts(
+                result.run_id,
+                self.source,
+                listing_url,
+                None,
+                page,
+                cfg,
+                screenshot_name="screenshot_initial.png",
+            )
+
+        modal_runs: list[Any] = []
         modal_result = handle_common_modals(page, modal_settings, context="collection")
-        for action in modal_result.actions_taken:
-            result.modal_actions.append(f"{self.source}:{action.type}:{action.status}:{action.selector_or_text}")
-        for warning in modal_result.warnings:
-            result.modal_warnings.append(warning)
-            result.warnings.append(f"{self.source}: {warning}")
+        modal_runs.append(modal_result)
+        _merge_modal_result(result, self.source, modal_result)
+
+        if _modal_screenshot_enabled(modal_settings) and getattr(cfg, "save_debug_screenshots", True):
+            try:
+                page.wait_for_timeout(350)
+            except Exception:  # noqa: BLE001
+                pass
+            _save_debug_artifacts(
+                result.run_id,
+                self.source,
+                listing_url,
+                None,
+                page,
+                cfg,
+                screenshot_name="screenshot_after_modals.png",
+            )
 
         if modal_result.blocked_by_captcha:
             warning = f"{self.source}: captcha detected at {listing_url}. Cannot collect."
-            artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, [], page, cfg)
+            artifacts = _save_debug_artifacts(
+                result.run_id,
+                self.source,
+                listing_url,
+                [],
+                page,
+                cfg,
+                metadata={
+                    "run_id": result.run_id,
+                    "source": self.source,
+                    "keyword": criteria.keywords[0] if criteria.keywords else "",
+                    "query": ", ".join(criteria.keywords),
+                    "listing_url": listing_url,
+                    "final_url": getattr(page, "url", "") or "",
+                    "page_title": "",
+                    "status": "blocked",
+                    "raw_link_count": 0,
+                    "job_offer_count": 0,
+                    "listing_count": 0,
+                    "needs_review_count": 0,
+                    "unknown_count": 0,
+                    "started_at": result.started_at,
+                    "finished_at": datetime.now(UTC),
+                    "modal_summary": _summarize_modal_result(modal_result),
+                    "warnings": list(dict.fromkeys(result.modal_warnings + [warning])),
+                    "detected_captcha": True,
+                    "detected_login_wall": False,
+                    "detected_blocked_page": False,
+                },
+                modal_actions=[action.model_dump(mode="json") for action in modal_result.actions_taken],
+            )
             return [], [], artifacts, warning
         if modal_result.blocked_by_login:
             warning = f"{self.source}: login wall detected at {listing_url}. Cannot collect."
-            artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, [], page, cfg)
+            artifacts = _save_debug_artifacts(
+                result.run_id,
+                self.source,
+                listing_url,
+                [],
+                page,
+                cfg,
+                metadata={
+                    "run_id": result.run_id,
+                    "source": self.source,
+                    "keyword": criteria.keywords[0] if criteria.keywords else "",
+                    "query": ", ".join(criteria.keywords),
+                    "listing_url": listing_url,
+                    "final_url": getattr(page, "url", "") or "",
+                    "page_title": "",
+                    "status": "blocked",
+                    "raw_link_count": 0,
+                    "job_offer_count": 0,
+                    "listing_count": 0,
+                    "needs_review_count": 0,
+                    "unknown_count": 0,
+                    "started_at": result.started_at,
+                    "finished_at": datetime.now(UTC),
+                    "modal_summary": _summarize_modal_result(modal_result),
+                    "warnings": list(dict.fromkeys(result.modal_warnings + [warning])),
+                    "detected_captcha": False,
+                    "detected_login_wall": True,
+                    "detected_blocked_page": False,
+                },
+                modal_actions=[action.model_dump(mode="json") for action in modal_result.actions_taken],
+            )
             return [], [], artifacts, warning
 
         # Check for blocked/CAPTCHA/login pages
@@ -613,7 +769,37 @@ class PlaywrightJobCollector(ABC):
         if classification:
             warning = f"{self.source}: page at {listing_url} is {classification}. Cannot collect."
             logger.warning(warning)
-            artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, [], page, cfg)
+            artifacts = _save_debug_artifacts(
+                result.run_id,
+                self.source,
+                listing_url,
+                [],
+                page,
+                cfg,
+                metadata={
+                    "run_id": result.run_id,
+                    "source": self.source,
+                    "keyword": criteria.keywords[0] if criteria.keywords else "",
+                    "query": ", ".join(criteria.keywords),
+                    "listing_url": listing_url,
+                    "final_url": getattr(page, "url", "") or "",
+                    "page_title": "",
+                    "status": "blocked",
+                    "raw_link_count": 0,
+                    "job_offer_count": 0,
+                    "listing_count": 0,
+                    "needs_review_count": 0,
+                    "unknown_count": 0,
+                    "started_at": result.started_at,
+                    "finished_at": datetime.now(UTC),
+                    "modal_summary": _summarize_modal_result(modal_result),
+                    "warnings": list(dict.fromkeys(result.modal_warnings + [warning])),
+                    "detected_captcha": classification == "captcha",
+                    "detected_login_wall": classification == "login_wall",
+                    "detected_blocked_page": classification == "blocked",
+                },
+                modal_actions=[action.model_dump(mode="json") for action in modal_result.actions_taken],
+            )
             return [], [], artifacts, warning
 
         all_hrefs: list[str] = []
@@ -724,5 +910,64 @@ class PlaywrightJobCollector(ABC):
                 page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
                 time.sleep(scroll_pause)
 
-        artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, all_hrefs, page, cfg)
+                if scroll_n == 0 and detect_cookie_banner_visible(page):
+                    retry_modal_result = handle_common_modals(page, modal_settings, context="collection")
+                    modal_runs.append(retry_modal_result)
+                    _merge_modal_result(result, self.source, retry_modal_result)
+
+        page_title = ""
+        try:
+            page_title = page.title() or ""
+        except Exception:  # noqa: BLE001
+            page_title = ""
+
+        page_specific_job_count = sum(1 for item in result.collected_urls if item.listing_url == listing_url)
+        page_specific_listing_count = sum(1 for item in result.collected_listing_urls if item.listing_url == listing_url)
+        page_specific_needs_review = sum(1 for item in result.needs_review_urls if item.listing_url == listing_url)
+        page_specific_unknown = sum(1 for item in result.unknown_urls if item.listing_url == listing_url)
+        modal_actions_payload = [
+            action.model_dump(mode="json")
+            for modal_run in modal_runs
+            for action in list(getattr(modal_run, "actions_taken", []))
+        ]
+        modal_summary = {
+            "handler_called": any(bool(getattr(modal_run, "handler_called", False)) for modal_run in modal_runs),
+            "cookie_banner_visible_before": bool(getattr(modal_runs[0], "cookie_banner_visible_before", False)) if modal_runs else False,
+            "cookie_banner_visible_after": bool(getattr(modal_runs[-1], "cookie_banner_visible_after", False)) if modal_runs else False,
+            "actions_count": len(modal_actions_payload),
+            "actions_success_count": sum(1 for action in modal_actions_payload if action.get("status") == "success"),
+            "warnings": list(dict.fromkeys(result.modal_warnings)),
+        }
+
+        artifacts = _save_debug_artifacts(
+            result.run_id,
+            self.source,
+            listing_url,
+            all_hrefs,
+            page,
+            cfg,
+            metadata={
+                "run_id": result.run_id,
+                "source": self.source,
+                "keyword": criteria.keywords[0] if criteria.keywords else "",
+                "query": ", ".join(criteria.keywords),
+                "listing_url": listing_url,
+                "final_url": getattr(page, "url", "") or "",
+                "page_title": page_title,
+                "status": "partial" if result.modal_warnings or result.warnings else "ok",
+                "raw_link_count": len(all_hrefs),
+                "job_offer_count": page_specific_job_count,
+                "listing_count": page_specific_listing_count,
+                "needs_review_count": page_specific_needs_review,
+                "unknown_count": page_specific_unknown,
+                "started_at": result.started_at,
+                "finished_at": datetime.now(UTC),
+                "modal_summary": modal_summary,
+                "warnings": list(dict.fromkeys(result.warnings)),
+                "detected_captcha": result.blocked_by_captcha,
+                "detected_login_wall": result.blocked_by_login,
+                "detected_blocked_page": False,
+            },
+            modal_actions=modal_actions_payload,
+        )
         return all_hrefs, all_page_links, artifacts, ""

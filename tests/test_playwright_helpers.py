@@ -140,6 +140,29 @@ def test_does_not_click_apply_submit_register_buttons() -> None:
     assert any(a.status in ("failed", "skipped") for a in result.actions_taken)
 
 
+def test_does_not_click_explicit_dangerous_button_texts() -> None:
+    dangerous_items = [
+        _FakeItem("Apply"),
+        _FakeItem("Aplikuj"),
+        _FakeItem("Submit"),
+        _FakeItem("Wyślij"),
+        _FakeItem("Send"),
+        _FakeItem("Register"),
+        _FakeItem("Zarejestruj"),
+        _FakeItem("Sign up"),
+        _FakeItem("Login"),
+        _FakeItem("Log in"),
+        _FakeItem("Zaloguj"),
+        _FakeItem("Utwórz konto"),
+    ]
+    page = _FakePage("cookies overlay", dangerous_items)
+
+    result = handle_common_modals(page, {"enabled": True, "cookie_mode": "close_only"}, context="collection")
+
+    assert all(item.clicked is False for item in dangerous_items)
+    assert any(action.type == "none" for action in result.actions_taken)
+
+
 def test_captcha_detection_sets_flag() -> None:
     page = _FakePage("Please solve captcha - I am not a robot", [])
 
@@ -165,3 +188,14 @@ def test_modal_result_is_serializable() -> None:
     dumped = result.model_dump(mode="json")
     assert "actions_taken" in dumped
     assert isinstance(dumped["actions_taken"], list)
+
+
+def test_cookie_banner_still_visible_creates_warning() -> None:
+    close = _FakeItem("Close")
+    page = _FakePage("This site uses cookies and privacy settings", [close])
+
+    result = handle_common_modals(page, {"enabled": True, "cookie_mode": "close_only", "max_attempts": 2}, context="collection")
+
+    assert any("still visible" in warning.lower() for warning in result.warnings)
+    assert result.cookie_banner_visible_before is True
+    assert result.cookie_banner_visible_after is True
