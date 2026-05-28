@@ -237,6 +237,56 @@ Each extracted offer shows **Extraction details** (collapsible) in the Offers pa
 
 ---
 
+## Playwright job collection
+
+Use the Playwright collector when the static/API collectors return 0 offers or when a board only exposes its listings reliably in a real browser session. The collector opens public listing/search pages, scrolls gradually, collects offer URLs, deduplicates them, and then reuses the existing URL import and scoring pipeline. It does not auto-submit applications.
+
+### How it differs from the existing collectors
+
+- Static/API collectors fetch or parse listing data directly.
+- The Playwright collector only gathers public offer URLs from visible listing pages.
+- Imported URLs are then processed by the normal extractor/scorer stack.
+
+### Run from the UI
+
+1. Open **Job Search**.
+2. Switch to **Playwright Browser Collector**.
+3. Choose sources, headless mode, max scrolls, and max URLs per source.
+4. Optionally paste custom listing URLs, one per line.
+5. Use **Collect URLs only** or **Collect + Import** depending on whether you want to inspect URLs first.
+
+The UI stores debug artifacts per run under `data/debug/playwright_collectors/<run_id>/<source>/`.
+
+### Run from the CLI
+
+```bash
+# Collect and import React/frontend URLs from the default Playwright sources
+cv-sender collect-playwright --emergency --max-urls 20
+
+# Collect URLs only for a single source in a visible browser
+cv-sender collect-playwright --source justjoin --no-import --max-urls 20
+
+# Smoke-test the browser collectors without importing
+cv-sender debug-playwright-collectors
+```
+
+### Diagnostics and debug artifacts
+
+- `links.json`: raw href values seen on the page
+- `metadata.json`: source, listing URL, timestamp, and link counts
+- `screenshot.png`: saved when screenshot capture is enabled
+- `html_preview.html`: optional size-limited page snapshot
+- collection diagnostics are also saved to `data/collection_diagnostics.json`
+
+### Limitations
+
+- CAPTCHAs, login walls, and blocked pages are detected but never bypassed.
+- Websites may change their markup or URL patterns.
+- Headless mode may return fewer results on some sites; switch to `headless: false` when needed.
+- The collector starts with URLs from public listing pages and then relies on the existing importer/extractors.
+
+---
+
 ## Save to Job Assistant – bookmarklet
 
 The bookmarklet lets you import a job offer from your browser with a single click, without leaving the job offer page.

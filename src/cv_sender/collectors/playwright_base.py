@@ -328,7 +328,7 @@ class PlaywrightJobCollector(ABC):
 
         seen_urls: set[str] = set()
         all_raw_links: list[str] = []
-    all_extracted_links: list[str] = []  # ALL hrefs before is_job_url filter
+        all_extracted_links: list[str] = []  # all hrefs before source-specific filtering
 
         with sync_playwright() as pw:
             launch_kwargs: dict = {"headless": headless, "slow_mo": slow_mo}
@@ -346,7 +346,7 @@ class PlaywrightJobCollector(ABC):
 
                     page = context.new_page()
                     try:
-                        page_links, all_page_hrefs, artifacts, warning = self._process_listing_page(
+                        all_page_hrefs, page_links, artifacts, warning = self._process_listing_page(
                             page=page,
                             listing_url=listing_url,
                             max_scrolls=max_scrolls,
@@ -356,7 +356,7 @@ class PlaywrightJobCollector(ABC):
                             result=result,
                             cfg=cfg,
                         )
-                        all_raw_links.extend(page_links)
+                        all_raw_links.extend(all_page_hrefs)
                         all_extracted_links.extend(all_page_hrefs)
                         result.debug_artifacts.extend(artifacts)
                         if warning:
@@ -400,10 +400,10 @@ class PlaywrightJobCollector(ABC):
         seen_urls: set[str],
         result: PlaywrightCollectionResult,
         cfg: Any,
-    ) -> tuple[list[str], list[str], str]:
+    ) -> tuple[list[str], list[str], list[str], str]:
         """Navigate to *listing_url*, scroll, extract links, and populate *result*.
 
-        Returns (raw_links_on_page, debug_artifact_paths, warning_string).
+        Returns (all_hrefs_on_page, normalized_job_urls, debug_artifact_paths, warning_string).
         """
         logger.info("Playwright: opening %s → %s", self.source, listing_url)
 
@@ -422,13 +422,15 @@ class PlaywrightJobCollector(ABC):
             warning = f"{self.source}: page at {listing_url} is {classification}. Cannot collect."
             logger.warning(warning)
             artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, [], page, cfg)
-            return [], artifacts, warning
+            return [], [], artifacts, warning
 
+        all_hrefs: list[str] = []
         all_page_links: list[str] = []
         no_new_consecutive = 0
 
         for scroll_n in range(max_scrolls + 1):
             links = self.extract_links_from_page(page, listing_url)
+            all_hrefs.extend(links)
             new_count = 0
 
             for href in links:
@@ -467,5 +469,5 @@ class PlaywrightJobCollector(ABC):
                 page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
                 time.sleep(scroll_pause)
 
-        artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, all_page_links, page, cfg)
-        return all_page_links, artifacts, ""
+        artifacts = _save_debug_artifacts(result.run_id, self.source, listing_url, all_hrefs, page, cfg)
+        return all_hrefs, all_page_links, artifacts, ""

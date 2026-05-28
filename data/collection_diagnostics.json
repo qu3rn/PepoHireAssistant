@@ -314,5 +314,247 @@
     "suggestions": [
       "No offers were collected. Check that the selected sources are reachable."
     ]
+  },
+  {
+    "run_id": "a6c6b32f-b673-4e33-b2de-3bba61bf8b2d",
+    "started_at": "2026-05-27T22:21:43.992050Z",
+    "finished_at": "2026-05-27T22:21:45.470899Z",
+    "criteria": {
+      "keywords": [
+        "React Developer",
+        "Frontend Developer",
+        "Frontend Engineer"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript",
+        "Next.js"
+      ],
+      "locations": [
+        "Remote",
+        "Poland"
+      ],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": []
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 0.0
+      },
+      {
+        "source": "rocketjobs",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 0.0
+      },
+      {
+        "source": "nofluffjobs",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 1.48
+      },
+      {
+        "source": "pracuj",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 0.0
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": [
+      "No offers were collected. Check that the selected sources are reachable."
+    ]
+  },
+  {
+    "run_id": "f7e65fd0-be71-4962-b8fd-db5c19e20135",
+    "started_at": "2026-05-27T22:28:07.369018Z",
+    "finished_at": "2026-05-27T22:28:07.371126Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "status": "ok",
+        "raw_found_count": 5,
+        "found_count": 1,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.0
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "9b6c5fd8-a118-4674-91a2-2efd7833f109",
+    "started_at": "2026-05-27T22:32:10.396537Z",
+    "finished_at": "2026-05-27T22:32:10.398647Z",
+    "criteria": {
+      "keywords": [
+        "React",
+        "Frontend"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript"
+      ],
+      "locations": [],
+      "seniority": [],
+      "contract_types": [],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": [],
+      "mode": "playwright_collect_only",
+      "sources": [
+        "justjoin"
+      ]
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "status": "ok",
+        "raw_found_count": 5,
+        "found_count": 1,
+        "accepted_count": 1,
+        "duplicate_count": 4,
+        "rejected_count": 4,
+        "failed_count": 0,
+        "error": "",
+        "duration_seconds": 0.0
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": []
+  },
+  {
+    "run_id": "a29d19f6-b246-4675-bacf-7b570b7ca1b2",
+    "started_at": "2026-05-28T08:47:33.565839Z",
+    "finished_at": "2026-05-28T08:47:35.383035Z",
+    "criteria": {
+      "keywords": [
+        "React Developer",
+        "Frontend Developer",
+        "Frontend Engineer"
+      ],
+      "technologies": [
+        "React",
+        "TypeScript",
+        "Next.js"
+      ],
+      "locations": [
+        "Remote",
+        "Poland"
+      ],
+      "min_salary_b2b": 0,
+      "require_salary": false,
+      "exclude_keywords": []
+    },
+    "source_summaries": [
+      {
+        "source": "justjoin",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 0.0
+      },
+      {
+        "source": "rocketjobs",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 0.0
+      },
+      {
+        "source": "nofluffjobs",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 1.82
+      },
+      {
+        "source": "pracuj",
+        "status": "partial",
+        "raw_found_count": 0,
+        "found_count": 0,
+        "accepted_count": 0,
+        "duplicate_count": 0,
+        "rejected_count": 0,
+        "failed_count": 0,
+        "error": "source returned 0 raw results",
+        "duration_seconds": 0.0
+      }
+    ],
+    "decisions": [],
+    "global_warnings": [],
+    "suggestions": [
+      "No offers were collected. Check that the selected sources are reachable."
+    ]
   }
 ]

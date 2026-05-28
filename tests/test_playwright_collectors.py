@@ -559,6 +559,60 @@ def test_collect_and_import_skips_import_on_empty_collection(
     assert summary["total_imported"] == 0
 
 
+def test_import_collected_urls_calls_batch_import() -> None:
+    from cv_sender.collectors.playwright_base import PlaywrightCollectedUrl
+    from cv_sender.models import BatchImportResult
+    from cv_sender.playwright_collection import import_collected_urls
+
+    result = PlaywrightCollectionResult(
+        source="justjoin",
+        raw_link_count=2,
+        collected_urls=[
+            PlaywrightCollectedUrl(source="justjoin", url="https://justjoin.it/offers/react-dev"),
+        ],
+    )
+
+    with patch(
+        "cv_sender.playwright_collection.import_offers_from_urls",
+        return_value=BatchImportResult(),
+    ) as mock_import:
+        summary = import_collected_urls(result, auto_score=False)
+
+    mock_import.assert_called_once()
+    assert summary.source == "justjoin"
+    assert summary.collected_count == 1
+
+
+def test_collect_import_and_score_with_playwright_collect_only_skips_import(
+    broad_criteria: JobSearchCriteria, minimal_cfg, tmp_path: object, monkeypatch
+) -> None:
+    mock_pw_cm, _ = _make_mock_playwright_context(
+        "Jobs",
+        ["https://justjoin.it/offers/react-dev-acme"],
+    )
+    monkeypatch.setattr(
+        "cv_sender.collectors.playwright_base._DEBUG_BASE",
+        __import__("pathlib").Path(str(tmp_path)),
+    )
+
+    with (
+        patch("cv_sender.collectors.playwright_base.sync_playwright", return_value=mock_pw_cm),
+        patch("cv_sender.playwright_collection.import_offers_from_urls") as mock_import,
+    ):
+        from cv_sender.playwright_collection import collect_import_and_score_with_playwright
+
+        report = collect_import_and_score_with_playwright(
+            broad_criteria,
+            ["justjoin"],
+            minimal_cfg,
+            collect_urls_only=True,
+        )
+
+    mock_import.assert_not_called()
+    assert report.source_summaries[0].found_count == 1
+    assert report.source_summaries[0].accepted_count == 1
+
+
 # ---------------------------------------------------------------------------
 # PlaywrightCollectionConfig in Settings
 # ---------------------------------------------------------------------------

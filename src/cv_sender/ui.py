@@ -2338,7 +2338,7 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
         st.subheader("Playwright Browser Collector")
         st.caption(
             "Opens real browser windows, scrolls through job listing pages, and "
-            "collects offer URLs — then imports them into your offers database."
+            "collects offer URLs from public pages — then optionally imports them into your offers database."
         )
 
         from cv_sender.config import load_settings, save_settings  # noqa: PLC0415, F811
@@ -2348,13 +2348,15 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
 
         # ---- Source selection ----
         st.markdown("**Sources**")
-        pw_source_cols = st.columns(4)
-        _pw_sources = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj"]
+        pw_source_cols = st.columns(5)
+        _pw_sources = ["justjoin", "rocketjobs", "nofluffjobs", "pracuj", "linkedin"]
         pw_src_enabled: dict[str, bool] = {}
         for _i, _name in enumerate(_pw_sources):
             with pw_source_cols[_i]:
                 pw_src_enabled[_name] = st.checkbox(
-                    _name, value=True, key=f"pw_src_{_name}"
+                    _name,
+                    value=_name != "linkedin",
+                    key=f"pw_src_{_name}",
                 )
 
         # ---- Config ----
@@ -2428,10 +2430,32 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 pw_custom_map[_src_name] = parsed_urls
 
         # ---- Actions ----
-        pw_do_import = st.checkbox("Import collected URLs automatically", value=True, key="pw_do_import")
-        pw_do_score = st.checkbox("Auto-score imported offers", value=True, key="pw_do_score")
+        pw_collect_only = st.checkbox(
+            "Collect URLs only",
+            value=False,
+            key="pw_collect_urls_only",
+            help="Collect listing-page URLs without importing them yet.",
+        )
+        pw_do_import = st.checkbox(
+            "Import after collection",
+            value=True,
+            key="pw_do_import",
+            disabled=pw_collect_only,
+        )
+        pw_do_score = st.checkbox(
+            "Score after import",
+            value=True,
+            key="pw_do_score",
+            disabled=pw_collect_only or not pw_do_import,
+        )
+        pw_add_to_queue = st.checkbox(
+            "Add imported offers to queue",
+            value=False,
+            key="pw_add_to_queue",
+            disabled=pw_collect_only or not pw_do_import,
+        )
 
-        col_pw_save, col_pw_collect, col_pw_import_only = st.columns(3)
+        col_pw_save, col_pw_collect_only, col_pw_import_now, col_pw_collect_import = st.columns(4)
 
         with col_pw_save:
             if st.button("Save Playwright settings"):
@@ -2451,45 +2475,8 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 save_settings(new_settings_pw)
                 st.success("Playwright settings saved.")
 
-        with col_pw_collect:
-            if st.button("Collect + Import", type="primary", key="pw_collect"):
-                from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415, F811
-                from cv_sender.config import PlaywrightCollectionConfig  # noqa: PLC0415
-                from cv_sender.playwright_collection import collect_and_import  # noqa: PLC0415
-
-                run_criteria = JobSearchCriteria.from_config(settings_pw.job_search)
-                run_cfg = PlaywrightCollectionConfig(
-                    enabled=True,
-                    headless=pw_headless,
-                    slow_mo_ms=int(pw_slow_mo),
-                    max_scrolls_per_source=int(pw_max_scrolls),
-                    scroll_pause_ms=int(pw_scroll_pause),
-                    max_urls_per_source=int(pw_max_urls),
-                    save_debug_screenshots=pw_save_screenshots,
-                    page_timeout_ms=pw_cfg.page_timeout_ms,
-                )
-                active_pw_sources = [n for n, v in pw_src_enabled.items() if v]
-
-                with st.spinner(f"Playwright collecting from: {', '.join(active_pw_sources)} …"):
-                    pw_result = collect_and_import(
-                        criteria=run_criteria,
-                        sources=active_pw_sources,
-                        cfg=run_cfg,
-                        auto_score=pw_do_score if pw_do_import else False,
-                        custom_listing_urls=pw_custom_map or None,
-                    )
-
-                st.session_state["pw_last_result"] = pw_result
-
-                st.success(
-                    f"Done! Collected: **{pw_result['total_collected']}** · "
-                    f"Imported: **{pw_result['total_imported']}** · "
-                    f"Duplicates: {pw_result['total_duplicates']} · "
-                    f"Failed: {pw_result['total_failed']}"
-                )
-
-        with col_pw_import_only:
-            if st.button("Collect URLs only (no import)", key="pw_collect_only"):
+        with col_pw_collect_only:
+            if st.button("Collect URLs with Playwright", key="pw_collect_only_button"):
                 from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415, F811
                 from cv_sender.config import PlaywrightCollectionConfig  # noqa: PLC0415
                 from cv_sender.playwright_collection import collect_job_urls  # noqa: PLC0415
@@ -2526,6 +2513,80 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     "errors": [e for r in only_results for e in r.errors],
                 }
                 st.success(f"Collected {len(collected_urls_only)} URLs (not yet imported).")
+
+        with col_pw_import_now:
+            if st.button("Import collected URLs", key="pw_import_now_top"):
+                from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
+                from cv_sender.services import import_offers_from_urls  # noqa: PLC0415
+
+                pw_last_result = st.session_state.get("pw_last_result") or {}
+                prior_results = pw_last_result.get("collection_results", [])
+                pending_urls = [cu.url for r in prior_results for cu in r.collected_urls]
+                if not pending_urls:
+                    st.warning("No collected URLs available yet. Run Playwright collection first.")
+                else:
+                    with st.spinner("Importing collected URLs …"):
+                        import_res = import_offers_from_urls(
+                            urls=pending_urls,
+                            auto_score=pw_do_score,
+                            max_urls=max(len(pending_urls), 50),
+                        )
+                        if pw_add_to_queue and import_res.imported_count:
+                            build_apply_queue_from_offers()
+                            for campaign in get_active_campaigns():
+                                build_campaign_queue(campaign.id)
+                    pw_last_result["total_imported"] = import_res.imported_count
+                    pw_last_result["total_duplicates"] = import_res.duplicate_count + pw_last_result.get("total_duplicates", 0)
+                    pw_last_result["total_failed"] = import_res.failed_count
+                    pw_last_result["import_result"] = import_res
+                    st.session_state["pw_last_result"] = pw_last_result
+                    st.success(
+                        f"Imported: {import_res.imported_count} · Duplicates: {import_res.duplicate_count} · Failed: {import_res.failed_count}"
+                    )
+
+        with col_pw_collect_import:
+            if st.button("Collect + Import + Score", type="primary", key="pw_collect"):
+                from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
+                from cv_sender.collectors.base import JobSearchCriteria  # noqa: PLC0415, F811
+                from cv_sender.config import PlaywrightCollectionConfig  # noqa: PLC0415
+                from cv_sender.playwright_collection import collect_and_import  # noqa: PLC0415
+
+                run_criteria = JobSearchCriteria.from_config(settings_pw.job_search)
+                run_cfg = PlaywrightCollectionConfig(
+                    enabled=True,
+                    headless=pw_headless,
+                    slow_mo_ms=int(pw_slow_mo),
+                    max_scrolls_per_source=int(pw_max_scrolls),
+                    scroll_pause_ms=int(pw_scroll_pause),
+                    max_urls_per_source=int(pw_max_urls),
+                    save_debug_screenshots=pw_save_screenshots,
+                    page_timeout_ms=pw_cfg.page_timeout_ms,
+                )
+                active_pw_sources = [n for n, v in pw_src_enabled.items() if v]
+
+                with st.spinner(f"Playwright collecting from: {', '.join(active_pw_sources)} …"):
+                    pw_result = collect_and_import(
+                        criteria=run_criteria,
+                        sources=active_pw_sources,
+                        cfg=run_cfg,
+                        auto_score=pw_do_score if pw_do_import else False,
+                        custom_listing_urls=pw_custom_map or None,
+                    )
+                    if pw_add_to_queue and pw_result["total_imported"]:
+                        build_apply_queue_from_offers()
+                        for campaign in get_active_campaigns():
+                            build_campaign_queue(campaign.id)
+
+                st.session_state["pw_last_result"] = pw_result
+
+                st.success(
+                    f"Done! Collected: **{pw_result['total_collected']}** · "
+                    f"Imported: **{pw_result['total_imported']}** · "
+                    f"Duplicates: {pw_result['total_duplicates']} · "
+                    f"Failed: {pw_result['total_failed']}"
+                )
 
         # ---- Results panel ----
         pw_last = st.session_state.get("pw_last_result")
@@ -2575,14 +2636,20 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     urls_text = "\n".join(all_collected)
                     st.text_area("URLs", value=urls_text, height=200, key="pw_urls_preview")
                     if st.button("Import these URLs now", key="pw_import_now"):
+                        from cv_sender.apply_queue import build_apply_queue_from_offers  # noqa: PLC0415
+                        from cv_sender.campaigns import build_campaign_queue, get_active_campaigns  # noqa: PLC0415
                         from cv_sender.services import import_offers_from_urls  # noqa: PLC0415
 
                         with st.spinner("Importing …"):
                             import_res = import_offers_from_urls(
                                 urls=all_collected,
-                                auto_score=True,
+                                auto_score=pw_do_score,
                                 max_urls=max(len(all_collected), 50),
                             )
+                            if pw_add_to_queue and import_res.imported_count:
+                                build_apply_queue_from_offers()
+                                for campaign in get_active_campaigns():
+                                    build_campaign_queue(campaign.id)
                         st.success(
                             f"Imported: {import_res.imported_count} · "
                             f"Duplicates: {import_res.duplicate_count} · "
