@@ -57,6 +57,24 @@ def _priority_score(offer: Offer) -> float:
     return base + bonus
 
 
+def _queue_item_from_offer(offer: Offer, existing: ApplyQueueItem | None = None) -> ApplyQueueItem:
+    now = datetime.now(UTC)
+    base = existing or ApplyQueueItem(offer_id=offer.id)
+    return base.model_copy(
+        update={
+            "company": offer.company,
+            "title": offer.title,
+            "source": offer.source,
+            "url": offer.url,
+            "score": offer.score,
+            "priority_score": _priority_score(offer),
+            "reasons": offer.decision_reasons or base.reasons,
+            "warnings": offer.extraction_warnings or base.warnings,
+            "updated_at": now,
+        }
+    )
+
+
 def build_apply_queue_from_offers(
     offers: list[Offer] | None = None,
     applications: list[Application] | None = None,
@@ -96,17 +114,7 @@ def build_apply_queue_from_offers(
             continue
 
         items.append(
-            ApplyQueueItem(
-                offer_id=offer.id,
-                company=offer.company,
-                title=offer.title,
-                source=offer.source,
-                url=offer.url,
-                score=offer.score,
-                priority_score=_priority_score(offer),
-                reasons=offer.decision_reasons or [],
-                warnings=offer.extraction_warnings or [],
-            )
+            _queue_item_from_offer(offer)
         )
 
     items.sort(key=lambda x: x.priority_score, reverse=True)
@@ -122,6 +130,55 @@ def build_apply_queue_from_offers(
 
     # Reload and return
     return load_apply_queue(queue_path)
+
+
+def sync_queue_item_from_offer(
+    item_id: str,
+    queue_path: Path | None = None,
+) -> ApplyQueueItem | None:
+    """Refresh a queue item snapshot from its linked offer."""
+
+    from cv_sender.storage import get_offer_by_id  # noqa: PLC0415
+
+    item = get_queue_item_by_id(item_id, queue_path)
+    if item is None:
+        return None
+
+    offer = get_offer_by_id(item.offer_id)
+    if offer is None:
+        return item
+
+    updated = _queue_item_from_offer(offer, item)
+    update_queue_item(updated, queue_path)
+    return updated
+
+
+def sync_all_queue_items_from_offers(queue_path: Path | None = None) -> int:
+    """Refresh all queue items from the current Offer records.
+
+    Returns the number of queue items that were updated.
+    """
+
+    from cv_sender.storage import get_offer_by_id  # noqa: PLC0415
+
+    queue = load_apply_queue(queue_path)
+    updated_count = 0
+    refreshed: list[ApplyQueueItem] = []
+
+    for item in queue:
+        offer = get_offer_by_id(item.offer_id)
+        if offer is None:
+            refreshed.append(item)
+            continue
+        updated = _queue_item_from_offer(offer, item)
+        if updated.model_dump(mode="json") != item.model_dump(mode="json"):
+            updated_count += 1
+        refreshed.append(updated)
+
+    if updated_count:
+        save_apply_queue(refreshed, queue_path)
+
+    return updated_count
 
 
 def get_next_queue_item(queue_path: Path | None = None) -> ApplyQueueItem | None:

@@ -87,6 +87,17 @@ def _salary_str(o: Offer | Application) -> str:
     return "—"
 
 
+def _queue_display_data(queue_item) -> tuple[str, str, Offer | None]:  # noqa: ANN001
+    """Return the best available title/company pair for a queue item."""
+
+    from cv_sender.storage import get_offer_by_id  # noqa: PLC0415
+
+    offer = get_offer_by_id(queue_item.offer_id)
+    title = offer.title if offer and offer.title else queue_item.title
+    company = offer.company if offer and offer.company else queue_item.company
+    return title or "", company or "Unknown company", offer
+
+
 def _render_fill_result(result: Any, offer_id: str) -> None:
     """Render a FillResult in the UI including debug artifacts and retry buttons."""
     if result.status == FillStatus.FILLED:
@@ -431,6 +442,15 @@ def _page_offers() -> None:
                 if batch_result.imported_count:
                     st.rerun()
 
+    with st.expander("🧹 Maintenance", expanded=False):
+        st.caption("Repair imported offer titles and company names in stored offers.")
+        if st.button("Fix imported offer titles"):
+            with st.spinner("Normalizing stored offers …"):
+                total, changed = services.re_normalize_offers()
+            st.success(f"Normalized {changed} of {total} offer(s).")
+            if changed:
+                st.rerun()
+
     offers = _safe_load_offers()
 
     if not offers:
@@ -591,6 +611,8 @@ def _page_offers() -> None:
 
     for offer in result.items:
         with st.expander(f"**{offer.title}** — {offer.company}  |  score: {offer.score or '—'}  |  {offer.decision or '—'}"):
+            if offer.extraction_source == "url_slug_fallback":
+                st.warning("Title was inferred from a URL slug. Review the imported details.")
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"**Source:** {offer.source or '—'}")
             c1.markdown(f"**Location:** {offer.location or '—'}")
@@ -2112,12 +2134,12 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
     # ------------------------------------------------------------------ #
     # 2. Current offer card
     # ------------------------------------------------------------------ #
-    offer = get_offer_by_id(current_item.offer_id)
+    display_title, display_company, display_offer = _queue_display_data(current_item)
     with st.container(border=True):
         c1, c2 = st.columns([3, 1])
         with c1:
-            st.subheader(f"{current_item.title}")
-            st.markdown(f"**{current_item.company}** · {current_item.source}")
+            st.subheader(display_title)
+            st.markdown(f"**{display_company}** · {current_item.source}")
             if current_item.url:
                 st.markdown(f"🔗 [{current_item.url}]({current_item.url})")
         with c2:
@@ -2132,19 +2154,19 @@ def _page_rapid_apply() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 unsafe_allow_html=True,
             )
 
-        if offer:
+        if display_offer:
             detail_cols = st.columns(3)
             with detail_cols[0]:
-                if offer.location:
-                    st.markdown(f"📍 {offer.location}")
-                if offer.contract:
-                    st.markdown(f"📄 {offer.contract}")
+                if display_offer.location:
+                    st.markdown(f"📍 {display_offer.location}")
+                if display_offer.contract:
+                    st.markdown(f"📄 {display_offer.contract}")
             with detail_cols[1]:
-                if offer.salary_min or offer.salary_max:
-                    sal = f"{offer.salary_min or '?'} – {offer.salary_max or '?'} {offer.currency}"
+                if display_offer.salary_min or display_offer.salary_max:
+                    sal = f"{display_offer.salary_min or '?'} – {display_offer.salary_max or '?'} {display_offer.currency}"
                     st.markdown(f"💰 {sal}")
-                if offer.decision:
-                    st.markdown(f"🎯 Decision: **{offer.decision}**")
+                if display_offer.decision:
+                    st.markdown(f"🎯 Decision: **{display_offer.decision}**")
             with detail_cols[2]:
                 if current_item.selected_cv_name:
                     st.markdown(f"📋 CV: {current_item.selected_cv_name}")
@@ -3191,6 +3213,12 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                     build_apply_queue_from_offers()
                 st.success("Queue rebuilt.")
                 st.rerun()
+            if st.button("Sync queue from offers"):
+                with st.spinner("Refreshing queue snapshots …"):
+                    synced = services.sync_all_queue_items_from_offers()
+                st.success(f"Synced {synced} queue item(s) from offers.")
+                if synced:
+                    st.rerun()
 
         queue = load_apply_queue()
         stats = get_queue_stats()
@@ -3260,8 +3288,9 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 st.rerun()
 
             for item in _cq_result.items:
+                display_title, display_company, _ = _queue_display_data(item)
                 with st.expander(
-                    f"[{item.priority_score:.0f}] {item.title} @ {item.company} — {item.source}"
+                    f"[{item.priority_score:.0f}] {display_title} @ {display_company} — {item.source}"
                 ):
                     col1, col2, col3 = st.columns(3)
                     with col1:
@@ -3297,8 +3326,8 @@ def _page_job_search() -> None:  # noqa: PLR0912, PLR0914, PLR0915
                 rows = [
                     {
                         "Status": q.status,
-                        "Title": q.title,
-                        "Company": q.company,
+                        "Title": _queue_display_data(q)[0],
+                        "Company": _queue_display_data(q)[1],
                         "Source": q.source,
                         "Score": q.score or "",
                         "Priority": f"{q.priority_score:.1f}",
