@@ -1,5 +1,5 @@
 # PepoHireAssistant / Your local Pepe the best job agent ever
-<img width="435" height="399" alt="image" src="https://github.com/user-attachments/assets/d377ae45-b701-44f9-94fe-c98c8ad57b16" />
+<img width="235" height="199" alt="image" src="https://github.com/user-attachments/assets/d377ae45-b701-44f9-94fe-c98c8ad57b16" />
 
 !IMPORTANT THIS IS JUST MVP SKETCH!
 
